@@ -1,0 +1,3 @@
+[submodule "3rdparty/linux-xlnx"]
+	path = 3rdparty/linux-xlnx
+	url = https://github.com/Xilinx/linux-xlnx.git
