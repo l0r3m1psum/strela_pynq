@@ -95,16 +95,6 @@ int main(void) {
         return 1;
     }
 
-    // TODO: add this stuff to the driver...
-#if 0
-    *((volatile uint32_t *)((uint8_t*)XPAR_CGRA_AXI_LITE_0_BASEADDR + STRELA_AM_OPA)) = 0xcafe;
-
-    int reg_data = *((volatile uint32_t *)((uint8_t*)XPAR_CGRA_AXI_LITE_0_BASEADDR + STRELA_AM_OPA));
-
-    xil_printf("Bounce back register data = %x (hex)\n\r", reg_data);
-#endif
-
-
     enum {
         MEGABYTE      = 0x100000,
         CONFIG_OFFSET = 0*MEGABYTE / CGRA_WORD_SIZE,

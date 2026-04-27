@@ -9,6 +9,7 @@
 #include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/printk.h>
+#include <linux/random.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/version.h>
@@ -227,6 +228,17 @@ chardev2_init(void) {
     }
 
     cgra_io_base_addr = ioremap(CGRA_BASE_ADDRESS, CGRA_IO_SIZE);
+
+
+    u32 challenge = get_random_u32();
+    iowrite32(challenge, cgra_io_base_addr + CGRA_REG_OPA);
+    u32 response = ioread32(cgra_io_base_addr + CGRA_REG_OPA);
+
+    if (challenge != response) {
+        pr_err("[Mod] Bounce back register test failed!");
+        errorType = EIO;
+        goto free_dma;
+    }
 
     printk("[Mod] success\n");
 
