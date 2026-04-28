@@ -47,10 +47,10 @@
 
 #define CGRA_REG_OPA 0xF0
 #define CGRA_REG_OPB 0xF4
-#define CGRA_REG_OPR 0xF8 // Read only
+#define CGRA_REG_OPR 0xF8 // Read only (Result = A + B)
 
 #define CGRA_REG_RESET_DMA 0xF8  // Write only
 
-#define CGRA_INP_BITS_STRIDE_COUNT(stride, count) ((stride << 16) | stride*count)
+#define CGRA_PACK_STRIDE_COUNT(stride, count) ((stride << 16) | stride*count)
 
 #endif

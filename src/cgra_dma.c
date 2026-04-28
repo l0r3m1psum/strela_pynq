@@ -39,9 +39,9 @@ static void *addr_vir;
 static dma_addr_t addr_bus;
 // NOTE: This functions should be noop when using dma_mmap_coherent.
 // Xil_DCacheFlushRange
-#define FLUSH_D_CACHE() dma_sync_single_for_device(device_struct_ptr, addr_bus, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE)
+#define FLUSH_D_CACHE() if (0) dma_sync_single_for_device(device_struct_ptr, addr_bus, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE)
 // Xil_DCacheInvalidateRange
-#define INVAL_D_CACHE() dma_sync_single_for_cpu(device_struct_ptr, addr_bus, CGRA_DATA_REGION_SIZE, DMA_FROM_DEVICE)
+#define INVAL_D_CACHE() if (0) dma_sync_single_for_cpu(device_struct_ptr, addr_bus, CGRA_DATA_REGION_SIZE, DMA_FROM_DEVICE)
 
 static void __iomem *cgra_io_base_addr;
 
@@ -72,36 +72,44 @@ device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
             if (copy_from_user(&cgra_ctrl, (void __user *)ioctl_param, sizeof cgra_ctrl))
                 pr_err("[Mod] Copy from user failed\n");
 
+/*
+#define iowrite32(b, addr) do {
+    printk(KERN_INFO "0x%p <- %x", (addr), (b)); \
+    (iowrite32)((b), (addr)); \
+} while (0)
+*/
             iowrite32(addr_bus + cgra_ctrl.conf_offs,      cgra_io_base_addr + CGRA_REG_CONF_ADDR);
             iowrite32(cgra_ctrl.conf_count*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_CONF_SIZE);
 
-            iowrite32(addr_bus + cgra_ctrl.in0_offs*CGRA_WORD_SIZE,                          cgra_io_base_addr + CGRA_REG_INP0_ADDR);
-            iowrite32(CGRA_INP_BITS_STRIDE_COUNT(cgra_ctrl.in0_stride, cgra_ctrl.in0_count), cgra_io_base_addr + CGRA_REG_INP0_SIZE);
-            iowrite32(addr_bus + cgra_ctrl.in1_offs*CGRA_WORD_SIZE,                          cgra_io_base_addr + CGRA_REG_INP1_ADDR);
-            iowrite32(CGRA_INP_BITS_STRIDE_COUNT(cgra_ctrl.in1_stride, cgra_ctrl.in1_count), cgra_io_base_addr + CGRA_REG_INP1_SIZE);
-            iowrite32(addr_bus + cgra_ctrl.in2_offs*CGRA_WORD_SIZE,                          cgra_io_base_addr + CGRA_REG_INP2_ADDR);
-            iowrite32(CGRA_INP_BITS_STRIDE_COUNT(cgra_ctrl.in2_stride, cgra_ctrl.in2_count), cgra_io_base_addr + CGRA_REG_INP2_SIZE);
-            iowrite32(addr_bus + cgra_ctrl.in3_offs*CGRA_WORD_SIZE,                          cgra_io_base_addr + CGRA_REG_INP3_ADDR);
-            iowrite32(CGRA_INP_BITS_STRIDE_COUNT(cgra_ctrl.in3_stride, cgra_ctrl.in3_count), cgra_io_base_addr + CGRA_REG_INP3_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.in0_offs*CGRA_WORD_SIZE,                      cgra_io_base_addr + CGRA_REG_INP0_ADDR);
+            iowrite32(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in0_stride, cgra_ctrl.in0_count), cgra_io_base_addr + CGRA_REG_INP0_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.in1_offs*CGRA_WORD_SIZE,                      cgra_io_base_addr + CGRA_REG_INP1_ADDR);
+            iowrite32(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in1_stride, cgra_ctrl.in1_count), cgra_io_base_addr + CGRA_REG_INP1_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.in2_offs*CGRA_WORD_SIZE,                      cgra_io_base_addr + CGRA_REG_INP2_ADDR);
+            iowrite32(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in2_stride, cgra_ctrl.in2_count), cgra_io_base_addr + CGRA_REG_INP2_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.in3_offs*CGRA_WORD_SIZE,                      cgra_io_base_addr + CGRA_REG_INP3_ADDR);
+            iowrite32(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in3_stride, cgra_ctrl.in3_count), cgra_io_base_addr + CGRA_REG_INP3_SIZE);
 
-            iowrite32(addr_bus + cgra_ctrl.out0_offs*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT0_ADDR);
-            iowrite32(cgra_ctrl.out0_count*CGRA_WORD_SIZE,           cgra_io_base_addr + CGRA_REG_OUT0_SIZE);
-            iowrite32(addr_bus + cgra_ctrl.out1_offs*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT1_ADDR);
-            iowrite32(cgra_ctrl.out1_count*CGRA_WORD_SIZE,           cgra_io_base_addr + CGRA_REG_OUT1_SIZE);
-            iowrite32(addr_bus + cgra_ctrl.out2_offs*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT2_ADDR);
-            iowrite32(cgra_ctrl.out2_count*CGRA_WORD_SIZE,           cgra_io_base_addr + CGRA_REG_OUT2_SIZE);
-            iowrite32(addr_bus + cgra_ctrl.out3_offs*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT3_ADDR);
-            iowrite32(cgra_ctrl.out3_count*CGRA_WORD_SIZE,           cgra_io_base_addr + CGRA_REG_OUT3_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.out0_offs*CGRA_WORD_SIZE,  cgra_io_base_addr + CGRA_REG_OUT0_ADDR);
+            iowrite32(           cgra_ctrl.out0_count*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT0_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.out1_offs*CGRA_WORD_SIZE,  cgra_io_base_addr + CGRA_REG_OUT1_ADDR);
+            iowrite32(           cgra_ctrl.out1_count*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT1_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.out2_offs*CGRA_WORD_SIZE,  cgra_io_base_addr + CGRA_REG_OUT2_ADDR);
+            iowrite32(           cgra_ctrl.out2_count*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT2_SIZE);
+            iowrite32(addr_bus + cgra_ctrl.out3_offs*CGRA_WORD_SIZE,  cgra_io_base_addr + CGRA_REG_OUT3_ADDR);
+            iowrite32(           cgra_ctrl.out3_count*CGRA_WORD_SIZE, cgra_io_base_addr + CGRA_REG_OUT3_SIZE);
 
+            // Maybe unnecessary...
             iowrite32(1, cgra_io_base_addr + CGRA_REG_OUT_ARB_HOLD);
+// #undef iowrite32
             break;
         }
         case IOCTL_CGRA_CONFIG: {
             FLUSH_D_CACHE();
 
-            iowrite32(CGRA_CMD_CLEAR_STATE, cgra_io_base_addr + CGRA_REG_CTRL);
+            iowrite32(CGRA_CMD_CLEAR_STATE,  cgra_io_base_addr + CGRA_REG_CTRL);
             iowrite32(CGRA_CMD_CLEAR_CONFIG, cgra_io_base_addr + CGRA_REG_CTRL);
-            iowrite32(1, cgra_io_base_addr + CGRA_REG_RESET_DMA);
+            iowrite32(1,                     cgra_io_base_addr + CGRA_REG_RESET_DMA);
 
             iowrite32(CGRA_CMD_LOAD_CONFIG, cgra_io_base_addr + CGRA_REG_CTRL);
 
@@ -119,7 +127,7 @@ device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
             u32 val = 0;
             ret = readl_poll_timeout(
                 cgra_io_base_addr + CGRA_REG_CTRL,
-                val, (val & CGRA_CMD_DONE_EXEC), 10, 50000
+                val, (val & CGRA_CMD_DONE_EXEC), 10, 500000
             );
             INVAL_D_CACHE();
             break;
@@ -194,20 +202,17 @@ chardev2_init(void) {
         goto free_cdev;
     }
 
-    // Create a struct device in sysfs, registered to the created class
-    // This is the device that appears in /dev, the file accesses by the user process
     device_struct_ptr = device_create(class_struct_ptr, NULL, dev_number, NULL, DEVICE_NAME);
-    if (IS_ERR( device_struct_ptr )) {
-        pr_err( "[Mod] device_create failed\n");
+    if (IS_ERR(device_struct_ptr)) {
+        pr_err("[Mod] device_create failed\n");
         errorType = EIO;
         goto free_class;
     }
 
-    // Specify that the device can access the complete 32-bit address space
     dma_mask = DMA_BIT_MASK(32);
     device_struct_ptr->dma_mask = &dma_mask;
 
-    if(dma_set_mask_and_coherent(device_struct_ptr, DMA_BIT_MASK(32))) {
+    if (dma_set_mask_and_coherent(device_struct_ptr, DMA_BIT_MASK(32))) {
         pr_err("[Mod] setting mask failed\n");
         errorType = EIO;
         goto free_dev;
@@ -221,7 +226,7 @@ chardev2_init(void) {
         goto free_dev;
     }
 
-    if(!request_mem_region(CGRA_BASE_ADDRESS, CGRA_IO_SIZE, DEVICE_NAME)) {
+    if (!request_mem_region(CGRA_BASE_ADDRESS, CGRA_IO_SIZE, DEVICE_NAME)) {
         pr_err("[Mod] IO mem request failed\n");
         errorType = EIO;
         goto free_dma;
@@ -229,12 +234,13 @@ chardev2_init(void) {
 
     cgra_io_base_addr = ioremap(CGRA_BASE_ADDRESS, CGRA_IO_SIZE);
 
+    u32 challenge1 = 1; // get_random_u32();
+    u32 challenge2 = 2; // get_random_u32();
+    iowrite32(challenge1, cgra_io_base_addr + CGRA_REG_OPA);
+    iowrite32(challenge2, cgra_io_base_addr + CGRA_REG_OPB);
+    u32 response = ioread32(cgra_io_base_addr + CGRA_REG_OPR);
 
-    u32 challenge = get_random_u32();
-    iowrite32(challenge, cgra_io_base_addr + CGRA_REG_OPA);
-    u32 response = ioread32(cgra_io_base_addr + CGRA_REG_OPA);
-
-    if (challenge != response) {
+    if (response != challenge1 + challenge2) {
         pr_err("[Mod] Bounce back register test failed!");
         errorType = EIO;
         goto free_dma;
@@ -244,26 +250,24 @@ chardev2_init(void) {
 
     return 0;
 
-    free_dma:
-        dma_free_coherent(device_struct_ptr, CGRA_DATA_REGION_SIZE, addr_vir, addr_bus);
-    free_dev:
-        device_destroy(class_struct_ptr, dev_number );
-    free_class:
-        class_destroy(class_struct_ptr);
-    free_cdev:
-        kobject_put( &cdev_struct_ptr->kobj );
-    free_device_number:
-        unregister_chrdev_region( dev_number, 1 );
-        return -errorType;
+free_dma:
+    dma_free_coherent(device_struct_ptr, CGRA_DATA_REGION_SIZE, addr_vir, addr_bus);
+free_dev:
+    device_destroy(class_struct_ptr, dev_number);
+free_class:
+    class_destroy(class_struct_ptr);
+free_cdev:
+    kobject_put(&cdev_struct_ptr->kobj);
+free_device_number:
+    unregister_chrdev_region(dev_number, 1);
+    return -errorType;
 }
 
 static void __exit
 chardev2_exit(void) {
     iounmap(cgra_io_base_addr);
     release_mem_region(CGRA_BASE_ADDRESS, CGRA_IO_SIZE);
-
     dma_free_coherent(device_struct_ptr, CGRA_DATA_REGION_SIZE, addr_vir, addr_bus);
-
     device_destroy(class_struct_ptr, dev_number);
     class_destroy(class_struct_ptr);
     cdev_del(cdev_struct_ptr);
