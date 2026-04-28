@@ -24,7 +24,7 @@
 // 1 5 9  13
 // 2 6 10 14
 // 3 7 11 15
-static uint32_t bypass_kernel[BYPASS_KRNL_SIZE] = {
+static const uint32_t bypass_kernel[BYPASS_KRNL_SIZE] = {
     0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
     0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
     0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 4
@@ -102,15 +102,18 @@ int main(void) {
         OUTPUT_OFFSET = 2*MEGABYTE / CGRA_WORD_SIZE,
     };
 
-    uint32_t *mem     = mmap_ptr + INPUT_OFFSET;
+    uint32_t *cgra_kernel = mmap_ptr + CONFIG_OFFSET;
+    uint32_t *mem_inp = mmap_ptr + INPUT_OFFSET;
     uint32_t *mem_out = mmap_ptr + OUTPUT_OFFSET;
     uint32_t gold[BUFF_SIZE] = {0};
-    init_buf(mem, mem_out, gold);
 
-    uint32_t *cgra_kernel = mmap_ptr + CONFIG_OFFSET;
+    init_buf(mem_inp, mem_out, gold);
     memcpy(cgra_kernel, bypass_kernel, sizeof bypass_kernel);
 
-    uint32_t *mem_out_ptr = mmap_ptr + OUTPUT_OFFSET;
+    printf("input: "); for (int i = 0; i < BUFF_SIZE; i++) printf("%d ", mem_inp[i]); puts("");
+    printf("output: "); for (int i = 0; i < BUFF_SIZE; i++) printf("%d ", mem_out[i]); puts("");
+    printf("gold: "); for (int i = 0; i < BUFF_SIZE; i++) printf("%d ", gold[i]); puts("");
+    printf("kernel: "); for (int i = 0; i < BYPASS_KRNL_SIZE; i++) printf("0x%x ", cgra_kernel[i]); puts("");
 
     CGRA_control_t cgra_ctrl = {
         .conf_offs = CONFIG_OFFSET,
