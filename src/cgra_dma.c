@@ -4,10 +4,13 @@
 #include <linux/cdev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/fpga/fpga-mgr.h>
 #include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/iopoll.h>
 #include <linux/module.h>
+#include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/printk.h>
 #include <linux/random.h>
 #include <linux/types.h>
@@ -169,8 +172,45 @@ static struct file_operations fops = {
     .release        = device_release,
 };
 
+static bool
+is_fpga_programmed(void) {
+    struct device_node *np;
+    struct platform_device *pdev;
+    struct fpga_manager *mgr;
+    bool programmed = false;
+
+    np = of_find_compatible_node(NULL, NULL, "xlnx,zynq-devcfg-1.0");
+    if (!np)
+        return false;
+
+    pdev = of_find_device_by_node(np);
+    of_node_put(np);
+    if (!pdev)
+        return false;
+
+    mgr = fpga_mgr_get(&pdev->dev);
+    if (IS_ERR(mgr)) {
+        put_device(&pdev->dev);
+        return false;
+    }
+
+    // 4. Check the state
+    if (mgr->state == FPGA_MGR_STATE_OPERATING)
+        programmed = true;
+
+    fpga_mgr_put(mgr);
+    put_device(&pdev->dev);
+
+    return programmed;
+}
+
 static int __init
 chardev2_init(void) {
+    if (!is_fpga_programmed()) {
+        pr_err("Refusing to load: FPGA is not programmed. Avoided AXI lockup!\n");
+        return -ENODEV;
+    }
+
     int errorType;
     printk("[Mod] starting insertion\n");
 
