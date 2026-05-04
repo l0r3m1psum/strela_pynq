@@ -34,4 +34,6 @@ sudo apt install build-essential flex bison gcc-13-arm-linux-gnueabihf bc device
 
 ```
 wsl --shutdown
+wsl -d Ubuntu
+net use Z: "\\wsl.localhost\Ubuntu"
 ```
