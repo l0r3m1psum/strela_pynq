@@ -47,6 +47,8 @@ cgra_ctx_init(cgra_ctx *ctx) {
     ctx->base = base;
 }
 
+// TODO: add an argument to decide where to route the data for testing.
+// This makes it easy to see which columns are working.
 static int
 cgra_bypass(
     struct cgra_ctx *ctx,
@@ -55,8 +57,7 @@ cgra_bypass(
     size_t len
 ) {
     enum {
-        KRNL_NPE = 16,
-        KRNL_SIZE = KRNL_NPE * 5,
+        KRNL_NPE = 16, KRNL_SIZE = KRNL_NPE * 5,
     };
 
     static const uint32_t bypass_kernel[KRNL_SIZE] = {
@@ -100,14 +101,14 @@ cgra_bypass(
         .conf_offs = CONFIG_OFFSET, .conf_count = KRNL_SIZE,
 
         .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = CGRA_WORD_SIZE,
-        // .in1_offs = INPUT_OFFSET + len1*1, .in1_count = len1, .in1_stride = CGRA_WORD_SIZE,
-        // .in2_offs = INPUT_OFFSET + len1*2, .in2_count = len1, .in2_stride = CGRA_WORD_SIZE,
-        // .in3_offs = INPUT_OFFSET + len1*3, .in3_count = len2, .in3_stride = CGRA_WORD_SIZE,
+        .in1_offs = INPUT_OFFSET + len1*1, .in1_count = len1, .in1_stride = CGRA_WORD_SIZE,
+        .in2_offs = INPUT_OFFSET + len1*2, .in2_count = len1, .in2_stride = CGRA_WORD_SIZE,
+        .in3_offs = INPUT_OFFSET + len1*3, .in3_count = len2, .in3_stride = CGRA_WORD_SIZE,
 
         .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
-        // .out1_offs = OUTPUT_OFFSET + len1*1, .out1_count = len1,
-        // .out2_offs = OUTPUT_OFFSET + len1*2, .out2_count = len1,
-        // .out3_offs = OUTPUT_OFFSET + len1*3, .out3_count = len2,
+        .out1_offs = OUTPUT_OFFSET + len1*1, .out1_count = len1,
+        .out2_offs = OUTPUT_OFFSET + len1*2, .out2_count = len1,
+        .out3_offs = OUTPUT_OFFSET + len1*3, .out3_count = len2,
     };
 
     if (ioctl(ctx->fd, IOCTL_CGRA_CONTROL, &cgra_ctrl) == -1) {
@@ -138,8 +139,7 @@ cgra_relu(
     size_t len
 ) {
     enum {
-        KRNL_NPE = 16, KRNL_NROUTERS = 4,
-        KRNL_SIZE = KRNL_NPE * 5 + KRNL_NROUTERS,
+        KRNL_NPE = 16, KRNL_SIZE = KRNL_NPE * 5,
     };
 
     static const uint32_t relu_kernel[KRNL_SIZE] = {
@@ -182,11 +182,11 @@ cgra_relu(
         .conf_offs = CONFIG_OFFSET,
         .conf_count = KRNL_SIZE,
 
-        .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = CGRA_WORD_SIZE,
-        // .in3_offs = INPUT_OFFSET + len1*1, .in3_count = len2, .in3_stride = CGRA_WORD_SIZE,
+        // .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = CGRA_WORD_SIZE,
+        .in3_offs = INPUT_OFFSET + len1*1, .in3_count = len2, .in3_stride = CGRA_WORD_SIZE,
 
-        .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
-        // .out3_offs = OUTPUT_OFFSET + len1*1, .out3_count = len2,
+        // .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
+        .out3_offs = OUTPUT_OFFSET + len1*1, .out3_count = len2,
     };
 
     if (ioctl(ctx->fd, IOCTL_CGRA_CONTROL, &cgra_ctrl) == -1) {
@@ -244,6 +244,9 @@ int main(void) {
             return 1;
         }
 
+        inspect_mem("input", input, BUFF_SIZE);
+        inspect_mem("output", output, BUFF_SIZE);
+        inspect_mem("output_ref", output_ref, BUFF_SIZE);
         if (memcmp(output, output_ref, sizeof output) != 0) {
             fprintf(stderr, "bypass kernel made mistakes\n");
             errors++;
@@ -268,6 +271,9 @@ int main(void) {
             return 1;
         }
 
+        inspect_mem("input", input, BUFF_SIZE);
+        inspect_mem("output", output, BUFF_SIZE);
+        inspect_mem("output_ref", output_ref, BUFF_SIZE);
         if (memcmp(output, output_ref, sizeof output) != 0) {
             fprintf(stderr, "relu kernel made mistakes\n");
             errors++;

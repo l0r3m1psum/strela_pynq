@@ -204,6 +204,9 @@ is_fpga_programmed(void) {
     return programmed;
 }
 
+// This is needed for automatic configuration of HP AXI ports and other things
+// from the device overlay.
+// IS_ENABLED(CONFIG_XILINX_AFI_FPGA)
 static int __init
 chardev2_init(void) {
     if (!is_fpga_programmed()) {

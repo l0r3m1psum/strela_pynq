@@ -37,10 +37,15 @@ bitstream_name=$(basename "$bitstream_path")
 echo $full_bitstream > /sys/class/fpga_manager/fpga0/flags
 cp -f "$bitstream_path" /lib/firmware/
 echo "$bitstream_name" > /sys/class/fpga_manager/fpga0/firmware
-
-echo "Current FPGA State:"
 cat /sys/class/fpga_manager/fpga0/state
 
 # TODO: Device Tree Binary Overlay.
 # mkdir -p /sys/kernel/config/device-tree/overlays/my_overlay
 # cat my_overlay.dtbo > /sys/kernel/config/device-tree/overlays/my_overlay/dtbo
+# or
+# mount -t configfs configfs /sys/kernel/config
+# cp my_overlay.dtbo /lib/firmware
+# echo my_overlay.dtbo > /sys/kernel/config/device-tree/overlays/my_overlay/path
+
+# Unloads bistream???
+# rmdir /sys/kernel/config/device-tree/overlays/my_pl_design
