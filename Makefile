@@ -1,6 +1,6 @@
 KDIR ?= $(PWD)/3rdparty/linux-xlnx
 ccflags-y += -I$(src)/include
-obj-m += src/cgra_dma.o
+obj-m += src/strela.o
 
 all:
 	make -C $(KDIR) M=$(PWD) modules

@@ -27,6 +27,9 @@
 #include "cgra_dma.h"
 #include "cgra_regs.h"
 
+#define CGRA_BASE_ADDRESS 0x43C00000
+#define CGRA_IO_SIZE      0x1000
+
 // TODO: rename cgra stuff to strela...
 
 // TODO:

@@ -3,9 +3,6 @@
 
 #include <linux/bits.h>
 
-#define CGRA_BASE_ADDRESS 0x43C00000
-#define CGRA_IO_SIZE      0x1000
-
 #define CGRA_CMD_START_EXEC         BIT(0)
 #define CGRA_CMD_CLEAR_STATE        BIT(1)
 #define CGRA_CMD_LOAD_CONFIG        BIT(2)
