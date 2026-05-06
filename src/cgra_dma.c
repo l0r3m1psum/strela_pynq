@@ -30,11 +30,6 @@
 #define CGRA_BASE_ADDRESS 0x43C00000
 #define CGRA_IO_SIZE      0x1000
 
-// TODO: rename cgra stuff to strela...
-
-// TODO:
-// static atomic_t already_open = ATOMIC_INIT(CDEV_NOT_USED);
-
 static uint64_t dma_mask;
 static dev_t dev_number;
 static struct cdev *cdev_struct_ptr;

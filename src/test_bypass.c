@@ -28,7 +28,7 @@ struct cgra_ctx {
 
 static bool
 cgra_ctx_init(cgra_ctx *ctx) {
-    int fd = open(DEVICE_PATH, O_RDWR);
+    int fd = open("/dev/strela0", O_RDWR);
 
     if (fd == -1) {
         perror("open");

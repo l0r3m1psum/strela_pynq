@@ -15,6 +15,7 @@
  * https://docs.kernel.org/core-api/kernel-api.html#char-devices
  * https://docs.kernel.org/core-api/idr.html#ida-usage
  */
+
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
@@ -117,7 +118,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 		}
 		case IOCTL_CGRA_CONFIG: {
 			// FLUSH_D_CACHE();
-			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE);
+			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
 
 			writel(CGRA_CMD_CLEAR_STATE,  base_addr + CGRA_REG_CTRL);
 			writel(CGRA_CMD_CLEAR_CONFIG, base_addr + CGRA_REG_CTRL);
@@ -134,7 +135,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 		}
 		case IOCTL_CGRA_EXEC: {
 			// FLUSH_D_CACHE();
-			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE);
+			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
 			writel(CGRA_CMD_START_EXEC, base_addr + CGRA_REG_CTRL);
 
 			u32 val = 0;
@@ -143,7 +144,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 				val, (val & CGRA_CMD_DONE_EXEC), 10, 500000
 			);
 			// INVAL_D_CACHE();
-			dma_sync_single_for_cpu(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_FROM_DEVICE);
+			dma_sync_single_for_cpu(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_FROM_DEVICE);
 			break;
 		}
 		default: {
@@ -212,9 +213,7 @@ static int strela_probe(struct platform_device *pdev) {
 		}
 	}
 
-	priv->dma_page = dma_alloc_pages(
-		physical_dev, CGRA_DATA_REGION_SIZE, &priv->dma_addr, DMA_BIDIRECTIONAL, GFP_KERNEL
-	);
+	priv->dma_page = dma_alloc_pages(physical_dev, CGRA_DATA_REGION_SIZE, &priv->dma_addr, DMA_BIDIRECTIONAL, GFP_KERNEL);
 	if (!priv->dma_page) {
 		dev_err(physical_dev, "Unable to allocate DMA region");
 		return -ENOMEM;
@@ -263,7 +262,6 @@ static void strela_remove(struct platform_device *pdev) {
 	cdev_del(&priv->cdev);
 	ida_free(&strela_ida, MINOR(priv->dev_num));
 	dma_free_pages(priv->logical_dev->parent, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
-
 	dev_info(priv->logical_dev->parent, "STRELA instance %d removed!\n", MINOR(priv->dev_num));
 }
 
@@ -279,6 +277,16 @@ static struct platform_driver dev_driver = {
 static int __init
 strela_driver_init(void) {
 	int ret;
+
+	if (!IS_ENABLED(CONFIG_XILINX_AFI_FPGA)) {
+		pr_warn("The Xilinx AFI bridge driver has not been compiled with the kernel "
+			"you may need to manually configure some AXI FIFO Interface registers.");
+	}
+
+	if (!IS_ENABLED(CONFIG_FPGA_MGR_ZYNQ_AFI_FPGA)) {
+		pr_warn("The Pynq AFI bridge driver has not been compiled with the kernel "
+			"you may need to manually configure some AXI FIFO Interface registers.");
+	}
 
 	ret = alloc_chrdev_region(&strela_base_dev_num, 0, MAX_STRELA_NUM, "strela");
 	if (ret < 0) {

@@ -45,7 +45,4 @@ typedef struct {
 #define IOCTL_CGRA_CONFIG  _IO(CG_IOCTL_MAGIC_NUM, 2)
 #define IOCTL_CGRA_EXEC    _IO(CG_IOCTL_MAGIC_NUM, 3)
 
-#define DEVICE_NAME "cgra_dma"
-#define DEVICE_PATH "/dev/cgra_dma"
-
 #endif
