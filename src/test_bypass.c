@@ -13,21 +13,21 @@
 
 enum {
     MEGABYTE      = 0x100000,
-    CONFIG_OFFSET = 0*MEGABYTE / CGRA_WORD_SIZE,
-    INPUT_OFFSET  = 1*MEGABYTE / CGRA_WORD_SIZE,
-    OUTPUT_OFFSET = 2*MEGABYTE / CGRA_WORD_SIZE,
+    CONFIG_OFFSET = 0*MEGABYTE / STRELA_WORD_SIZE,
+    INPUT_OFFSET  = 1*MEGABYTE / STRELA_WORD_SIZE,
+    OUTPUT_OFFSET = 2*MEGABYTE / STRELA_WORD_SIZE,
 };
 
 enum { BUFF_SIZE = 10, }; // 40 B
 
-typedef struct cgra_ctx cgra_ctx;
-struct cgra_ctx {
+typedef struct strela_ctx strela_ctx;
+struct strela_ctx {
     int fd;
     uint32_t *base;
 };
 
 static bool
-cgra_ctx_init(cgra_ctx *ctx) {
+strela_ctx_init(strela_ctx *ctx) {
     int fd = open("/dev/strela0", O_RDWR);
 
     if (fd == -1) {
@@ -35,7 +35,7 @@ cgra_ctx_init(cgra_ctx *ctx) {
         return false;
     }
 
-    uint32_t *base = mmap(NULL, CGRA_DATA_REGION_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    uint32_t *base = mmap(NULL, STRELA_DATA_REGION_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
     if (base == MAP_FAILED) {
         perror("mmap");
@@ -50,8 +50,8 @@ cgra_ctx_init(cgra_ctx *ctx) {
 // TODO: add an argument to decide where to route the data for testing.
 // This makes it easy to see which columns are working.
 static int
-cgra_bypass(
-    struct cgra_ctx *ctx,
+strela_bypass(
+    struct strela_ctx *ctx,
     const uint32_t *input,
     uint32_t *output,
     size_t len
@@ -82,7 +82,7 @@ cgra_bypass(
         0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
     };
 
-    if (len > MEGABYTE/CGRA_WORD_SIZE) {
+    if (len > MEGABYTE/STRELA_WORD_SIZE) {
         fprintf(stderr, "input too big\n");
         return false;
     }
@@ -97,13 +97,13 @@ cgra_bypass(
     uint32_t len1 = len/4;
     uint32_t len2 = len1 + len%4;
 
-    CGRA_control_t cgra_ctrl = {
+    struct STRELA_control strela_ctrl = {
         .conf_offs = CONFIG_OFFSET, .conf_count = KRNL_SIZE,
 
-        .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = CGRA_WORD_SIZE,
-        .in1_offs = INPUT_OFFSET + len1*1, .in1_count = len1, .in1_stride = CGRA_WORD_SIZE,
-        .in2_offs = INPUT_OFFSET + len1*2, .in2_count = len1, .in2_stride = CGRA_WORD_SIZE,
-        .in3_offs = INPUT_OFFSET + len1*3, .in3_count = len2, .in3_stride = CGRA_WORD_SIZE,
+        .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = STRELA_WORD_SIZE,
+        .in1_offs = INPUT_OFFSET + len1*1, .in1_count = len1, .in1_stride = STRELA_WORD_SIZE,
+        .in2_offs = INPUT_OFFSET + len1*2, .in2_count = len1, .in2_stride = STRELA_WORD_SIZE,
+        .in3_offs = INPUT_OFFSET + len1*3, .in3_count = len2, .in3_stride = STRELA_WORD_SIZE,
 
         .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
         .out1_offs = OUTPUT_OFFSET + len1*1, .out1_count = len1,
@@ -111,18 +111,18 @@ cgra_bypass(
         .out3_offs = OUTPUT_OFFSET + len1*3, .out3_count = len2,
     };
 
-    if (ioctl(ctx->fd, IOCTL_CGRA_CONTROL, &cgra_ctrl) == -1) {
-        perror("IOCTL_CGRA_CONTROL");
+    if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &strela_ctrl) == -1) {
+        perror("IOCTL_STRELA_CONTROL");
         return false;
     }
 
-    if (ioctl(ctx->fd, IOCTL_CGRA_CONFIG) == -1) {
-        perror("IOCTL_CGRA_CONFIG");
+    if (ioctl(ctx->fd, IOCTL_STRELA_CONFIG) == -1) {
+        perror("IOCTL_STRELA_CONFIG");
         return false;
     }
 
-    if (ioctl(ctx->fd, IOCTL_CGRA_EXEC) == -1) {
-        perror("IOCTL_CGRA_EXEC");
+    if (ioctl(ctx->fd, IOCTL_STRELA_EXEC) == -1) {
+        perror("IOCTL_STRELA_EXEC");
         return false;
     }
 
@@ -132,8 +132,8 @@ cgra_bypass(
 }
 
 static bool
-cgra_relu(
-    struct cgra_ctx *ctx,
+strela_relu(
+    struct strela_ctx *ctx,
     const uint32_t *input,
     uint32_t *output,
     size_t len
@@ -164,7 +164,7 @@ cgra_relu(
         0x00000211, 0x020C0300, 0x00000098, 0x00000000, 0x00000000, // 3
     };
 
-    if (len > MEGABYTE/CGRA_WORD_SIZE) {
+    if (len > MEGABYTE/STRELA_WORD_SIZE) {
         return false;
     }
 
@@ -178,29 +178,29 @@ cgra_relu(
     uint32_t len1 = len/2;
     uint32_t len2 = len1 + len%2;
 
-    CGRA_control_t cgra_ctrl = {
+    struct STRELA_control strela_ctrl = {
         .conf_offs = CONFIG_OFFSET,
         .conf_count = KRNL_SIZE,
 
-        // .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = CGRA_WORD_SIZE,
-        .in3_offs = INPUT_OFFSET + len1*1, .in3_count = len2, .in3_stride = CGRA_WORD_SIZE,
+        // .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = STRELA_WORD_SIZE,
+        .in3_offs = INPUT_OFFSET + len1*1, .in3_count = len2, .in3_stride = STRELA_WORD_SIZE,
 
         // .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
         .out3_offs = OUTPUT_OFFSET + len1*1, .out3_count = len2,
     };
 
-    if (ioctl(ctx->fd, IOCTL_CGRA_CONTROL, &cgra_ctrl) == -1) {
-        perror("IOCTL_CGRA_CONTROL");
+    if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &strela_ctrl) == -1) {
+        perror("IOCTL_STRELA_CONTROL");
         return false;
     }
 
-    if (ioctl(ctx->fd, IOCTL_CGRA_CONFIG) == -1) {
-        perror("IOCTL_CGRA_CONFIG");
+    if (ioctl(ctx->fd, IOCTL_STRELA_CONFIG) == -1) {
+        perror("IOCTL_STRELA_CONFIG");
         return false;
     }
 
-    if (ioctl(ctx->fd, IOCTL_CGRA_EXEC) == -1) {
-        perror("IOCTL_CGRA_EXEC");
+    if (ioctl(ctx->fd, IOCTL_STRELA_EXEC) == -1) {
+        perror("IOCTL_STRELA_EXEC");
         return false;
     }
 
@@ -221,9 +221,9 @@ static void inspect_mem(const char *name, int32_t *mem, size_t len) {
 
 int main(void) {
 
-    cgra_ctx ctx = {0};
-    if (cgra_ctx_init(&ctx) == -1) {
-        fprintf(stderr, "Cannot initialize CGRA context\n");
+    strela_ctx ctx = {0};
+    if (strela_ctx_init(&ctx) == -1) {
+        fprintf(stderr, "Cannot initialize STRELA context\n");
         return 1;
     }
 
@@ -239,7 +239,7 @@ int main(void) {
             output_ref[i] = input[i];
         }
 
-        if (!cgra_bypass(&ctx, input, output, BUFF_SIZE)) {
+        if (!strela_bypass(&ctx, input, output, BUFF_SIZE)) {
             fprintf(stderr, "Can't execute bypass kernel\n");
             return 1;
         }
@@ -266,7 +266,7 @@ int main(void) {
             output_ref[i] = max(0, input[i]);
         }
 
-        if (!cgra_relu(&ctx, input, output, BUFF_SIZE)) {
+        if (!strela_relu(&ctx, input, output, BUFF_SIZE)) {
             fprintf(stderr, "Can't execute relu kernel\n");
             return 1;
         }

@@ -31,7 +31,7 @@
 #include "strela.h"
 
 #if 0
-static size_t dma_alloc_size = CGRA_DATA_REGION_SIZE;
+static size_t dma_alloc_size = STRELA_DATA_REGION_SIZE;
 module_param(dma_alloc_size, size_t, 0644);
 MODULE_PARM_DESC(dma_alloc_size, "Allocation size for DMA area.");
 #endif
@@ -80,10 +80,10 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 	dma_addr_t dma_addr = priv->dma_addr;
 
 	switch (ioctl_num) {
-		case IOCTL_CGRA_CONTROL: {
-			CGRA_control_t cgra_ctrl;
+		case IOCTL_STRELA_CONTROL: {
+			struct STRELA_control strela_ctrl;
 
-			if (copy_from_user(&cgra_ctrl, (void __user *)ioctl_param, sizeof cgra_ctrl)) {
+			if (copy_from_user(&strela_ctrl, (void __user *)ioctl_param, sizeof strela_ctrl)) {
 				dev_err(priv->logical_dev, "Copy from user failed");
 				ret = -EFAULT;
 				break;
@@ -91,60 +91,60 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 			// NOTE: maybe in this context it is better to use writel_relaxed
 			// and conclude with a writel at the end to flush everything.
-			writel(dma_addr + cgra_ctrl.conf_offs,      base_addr + CGRA_REG_CONF_ADDR);
-			writel(cgra_ctrl.conf_count*CGRA_WORD_SIZE, base_addr + CGRA_REG_CONF_SIZE);
+			writel(dma_addr + strela_ctrl.conf_offs,      base_addr + STRELA_REG_CONF_ADDR);
+			writel(strela_ctrl.conf_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_CONF_SIZE);
 
-			writel(dma_addr + cgra_ctrl.in0_offs*CGRA_WORD_SIZE,                      base_addr + CGRA_REG_INP0_ADDR);
-			writel(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in0_stride, cgra_ctrl.in0_count), base_addr + CGRA_REG_INP0_SIZE);
-			writel(dma_addr + cgra_ctrl.in1_offs*CGRA_WORD_SIZE,                      base_addr + CGRA_REG_INP1_ADDR);
-			writel(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in1_stride, cgra_ctrl.in1_count), base_addr + CGRA_REG_INP1_SIZE);
-			writel(dma_addr + cgra_ctrl.in2_offs*CGRA_WORD_SIZE,                      base_addr + CGRA_REG_INP2_ADDR);
-			writel(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in2_stride, cgra_ctrl.in2_count), base_addr + CGRA_REG_INP2_SIZE);
-			writel(dma_addr + cgra_ctrl.in3_offs*CGRA_WORD_SIZE,                      base_addr + CGRA_REG_INP3_ADDR);
-			writel(CGRA_PACK_STRIDE_COUNT(cgra_ctrl.in3_stride, cgra_ctrl.in3_count), base_addr + CGRA_REG_INP3_SIZE);
+			writel(dma_addr + strela_ctrl.in0_offs*STRELA_WORD_SIZE,                      base_addr + STRELA_REG_INP0_ADDR);
+			writel(STRELA_PACK_STRIDE_COUNT(strela_ctrl.in0_stride, strela_ctrl.in0_count), base_addr + STRELA_REG_INP0_SIZE);
+			writel(dma_addr + strela_ctrl.in1_offs*STRELA_WORD_SIZE,                      base_addr + STRELA_REG_INP1_ADDR);
+			writel(STRELA_PACK_STRIDE_COUNT(strela_ctrl.in1_stride, strela_ctrl.in1_count), base_addr + STRELA_REG_INP1_SIZE);
+			writel(dma_addr + strela_ctrl.in2_offs*STRELA_WORD_SIZE,                      base_addr + STRELA_REG_INP2_ADDR);
+			writel(STRELA_PACK_STRIDE_COUNT(strela_ctrl.in2_stride, strela_ctrl.in2_count), base_addr + STRELA_REG_INP2_SIZE);
+			writel(dma_addr + strela_ctrl.in3_offs*STRELA_WORD_SIZE,                      base_addr + STRELA_REG_INP3_ADDR);
+			writel(STRELA_PACK_STRIDE_COUNT(strela_ctrl.in3_stride, strela_ctrl.in3_count), base_addr + STRELA_REG_INP3_SIZE);
 
-			writel(dma_addr + cgra_ctrl.out0_offs*CGRA_WORD_SIZE,  base_addr + CGRA_REG_OUT0_ADDR);
-			writel(           cgra_ctrl.out0_count*CGRA_WORD_SIZE, base_addr + CGRA_REG_OUT0_SIZE);
-			writel(dma_addr + cgra_ctrl.out1_offs*CGRA_WORD_SIZE,  base_addr + CGRA_REG_OUT1_ADDR);
-			writel(           cgra_ctrl.out1_count*CGRA_WORD_SIZE, base_addr + CGRA_REG_OUT1_SIZE);
-			writel(dma_addr + cgra_ctrl.out2_offs*CGRA_WORD_SIZE,  base_addr + CGRA_REG_OUT2_ADDR);
-			writel(           cgra_ctrl.out2_count*CGRA_WORD_SIZE, base_addr + CGRA_REG_OUT2_SIZE);
-			writel(dma_addr + cgra_ctrl.out3_offs*CGRA_WORD_SIZE,  base_addr + CGRA_REG_OUT3_ADDR);
-			writel(           cgra_ctrl.out3_count*CGRA_WORD_SIZE, base_addr + CGRA_REG_OUT3_SIZE);
+			writel(dma_addr + strela_ctrl.out0_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT0_ADDR);
+			writel(           strela_ctrl.out0_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT0_SIZE);
+			writel(dma_addr + strela_ctrl.out1_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT1_ADDR);
+			writel(           strela_ctrl.out1_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT1_SIZE);
+			writel(dma_addr + strela_ctrl.out2_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT2_ADDR);
+			writel(           strela_ctrl.out2_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT2_SIZE);
+			writel(dma_addr + strela_ctrl.out3_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT3_ADDR);
+			writel(           strela_ctrl.out3_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT3_SIZE);
 
 			// Maybe unnecessary...
-			writel(1, base_addr + CGRA_REG_OUT_ARB_HOLD);
+			writel(1, base_addr + STRELA_REG_OUT_ARB_HOLD);
 			break;
 		}
-		case IOCTL_CGRA_CONFIG: {
+		case IOCTL_STRELA_CONFIG: {
 			// FLUSH_D_CACHE();
-			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
+			dma_sync_single_for_device(physical_dev, dma_addr, STRELA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
 
-			writel(CGRA_CMD_CLEAR_STATE,  base_addr + CGRA_REG_CTRL);
-			writel(CGRA_CMD_CLEAR_CONFIG, base_addr + CGRA_REG_CTRL);
-			writel(1,                     base_addr + CGRA_REG_RESET_DMA);
+			writel(STRELA_CMD_CLEAR_STATE,  base_addr + STRELA_REG_CTRL);
+			writel(STRELA_CMD_CLEAR_CONFIG, base_addr + STRELA_REG_CTRL);
+			writel(1,                     base_addr + STRELA_REG_RESET_DMA);
 
-			writel(CGRA_CMD_LOAD_CONFIG, base_addr + CGRA_REG_CTRL);
+			writel(STRELA_CMD_LOAD_CONFIG, base_addr + STRELA_REG_CTRL);
 
 			u32 val = 0;
 			ret = readl_poll_timeout(
-				base_addr + CGRA_REG_CTRL,
-				val, (val & CGRA_CMD_DONE_CONFIG), 10, 5000
+				base_addr + STRELA_REG_CTRL,
+				val, (val & STRELA_CMD_DONE_CONFIG), 10, 5000
 			);
 			break;
 		}
-		case IOCTL_CGRA_EXEC: {
+		case IOCTL_STRELA_EXEC: {
 			// FLUSH_D_CACHE();
-			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
-			writel(CGRA_CMD_START_EXEC, base_addr + CGRA_REG_CTRL);
+			dma_sync_single_for_device(physical_dev, dma_addr, STRELA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
+			writel(STRELA_CMD_START_EXEC, base_addr + STRELA_REG_CTRL);
 
 			u32 val = 0;
 			ret = readl_poll_timeout(
-				base_addr + CGRA_REG_CTRL,
-				val, (val & CGRA_CMD_DONE_EXEC), 10, 500000
+				base_addr + STRELA_REG_CTRL,
+				val, (val & STRELA_CMD_DONE_EXEC), 10, 500000
 			);
 			// INVAL_D_CACHE();
-			dma_sync_single_for_cpu(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_FROM_DEVICE);
+			dma_sync_single_for_cpu(physical_dev, dma_addr, STRELA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_FROM_DEVICE);
 			break;
 		}
 		default: {
@@ -163,11 +163,11 @@ strela_mmap(struct file *file, struct vm_area_struct *vma) {
 	struct device *physical_dev = priv->logical_dev->parent;
 	unsigned long requested_size = vma->vm_end - vma->vm_start;
 
-	if (requested_size != CGRA_DATA_REGION_SIZE) {
+	if (requested_size != STRELA_DATA_REGION_SIZE) {
 		return -EINVAL;
 	}
 
-	ret = dma_mmap_pages(physical_dev, vma, CGRA_DATA_REGION_SIZE, priv->dma_page);
+	ret = dma_mmap_pages(physical_dev, vma, STRELA_DATA_REGION_SIZE, priv->dma_page);
 
 	if (ret < 0) {
 		dev_err(physical_dev, "dma_mmap_pages failed with error: %d", ret);
@@ -203,9 +203,9 @@ static int strela_probe(struct platform_device *pdev) {
 	{
 		u32 challenge1 = get_random_u32();
 		u32 challenge2 = get_random_u32();
-		writel(challenge1, priv->base_addr + CGRA_REG_OPA);
-		writel(challenge2, priv->base_addr + CGRA_REG_OPB);
-		u32 response = readl(priv->base_addr + CGRA_REG_OPR);
+		writel(challenge1, priv->base_addr + STRELA_REG_OPA);
+		writel(challenge2, priv->base_addr + STRELA_REG_OPB);
+		u32 response = readl(priv->base_addr + STRELA_REG_OPR);
 
 		if (response != challenge1 + challenge2) {
 			dev_err(physical_dev, "Adder challenge failed");
@@ -213,7 +213,7 @@ static int strela_probe(struct platform_device *pdev) {
 		}
 	}
 
-	priv->dma_page = dma_alloc_pages(physical_dev, CGRA_DATA_REGION_SIZE, &priv->dma_addr, DMA_BIDIRECTIONAL, GFP_KERNEL);
+	priv->dma_page = dma_alloc_pages(physical_dev, STRELA_DATA_REGION_SIZE, &priv->dma_addr, DMA_BIDIRECTIONAL, GFP_KERNEL);
 	if (!priv->dma_page) {
 		dev_err(physical_dev, "Unable to allocate DMA region");
 		return -ENOMEM;
@@ -251,7 +251,7 @@ delete_cdev:
 free_ida:
 	ida_free(&strela_ida, minor);
 free_dma:
-	dma_free_pages(physical_dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
+	dma_free_pages(physical_dev, STRELA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
 	return ret;
 }
 
@@ -261,7 +261,7 @@ static void strela_remove(struct platform_device *pdev) {
 	device_destroy(strela_class, priv->dev_num);
 	cdev_del(&priv->cdev);
 	ida_free(&strela_ida, MINOR(priv->dev_num));
-	dma_free_pages(priv->logical_dev->parent, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
+	dma_free_pages(priv->logical_dev->parent, STRELA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
 	dev_info(priv->logical_dev->parent, "STRELA instance %d removed!\n", MINOR(priv->dev_num));
 }
 

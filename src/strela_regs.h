@@ -1,53 +1,53 @@
-#ifndef CGRA_REGS_H
-#define CGRA_REGS_H
+#ifndef STRELA_REGS_H
+#define STRELA_REGS_H
 
 #include <linux/bits.h>
 
-#define CGRA_CMD_START_EXEC         BIT(0)
-#define CGRA_CMD_CLEAR_STATE        BIT(1)
-#define CGRA_CMD_LOAD_CONFIG        BIT(2)
-#define CGRA_CMD_CLEAR_CONFIG       BIT(3)
-#define CGRA_CMD_CLEAR_INT_CONFIG   BIT(4)
-#define CGRA_CMD_CLEAR_INT_EXEC     BIT(5)
+#define STRELA_CMD_START_EXEC         BIT(0)
+#define STRELA_CMD_CLEAR_STATE        BIT(1)
+#define STRELA_CMD_LOAD_CONFIG        BIT(2)
+#define STRELA_CMD_CLEAR_CONFIG       BIT(3)
+#define STRELA_CMD_CLEAR_INT_CONFIG   BIT(4)
+#define STRELA_CMD_CLEAR_INT_EXEC     BIT(5)
 
-#define CGRA_CMD_DONE_EXEC          BIT(0)
-#define CGRA_CMD_DONE_CONFIG        BIT(1)
-#define CGRA_CMD_PENDING_INT_CONFIG BIT(2)
-#define CGRA_CMD_PENDING_INT_EXEC   BIT(3)
+#define STRELA_CMD_DONE_EXEC          BIT(0)
+#define STRELA_CMD_DONE_CONFIG        BIT(1)
+#define STRELA_CMD_PENDING_INT_CONFIG BIT(2)
+#define STRELA_CMD_PENDING_INT_EXEC   BIT(3)
 
-#define CGRA_REG_CTRL      0x00
-#define CGRA_REG_CONF_ADDR 0x04
-#define CGRA_REG_CONF_SIZE 0x08
+#define STRELA_REG_CTRL      0x00
+#define STRELA_REG_CONF_ADDR 0x04
+#define STRELA_REG_CONF_SIZE 0x08
 
-#define CGRA_REG_INP0_ADDR 0x10
-#define CGRA_REG_INP0_SIZE 0x14
-#define CGRA_REG_INP1_ADDR 0x18
-#define CGRA_REG_INP1_SIZE 0x1C
-#define CGRA_REG_INP2_ADDR 0x20
-#define CGRA_REG_INP2_SIZE 0x24
-#define CGRA_REG_INP3_ADDR 0x28
-#define CGRA_REG_INP3_SIZE 0x2C
+#define STRELA_REG_INP0_ADDR 0x10
+#define STRELA_REG_INP0_SIZE 0x14
+#define STRELA_REG_INP1_ADDR 0x18
+#define STRELA_REG_INP1_SIZE 0x1C
+#define STRELA_REG_INP2_ADDR 0x20
+#define STRELA_REG_INP2_SIZE 0x24
+#define STRELA_REG_INP3_ADDR 0x28
+#define STRELA_REG_INP3_SIZE 0x2C
 
-#define CGRA_REG_OUT0_ADDR 0x50
-#define CGRA_REG_OUT0_SIZE 0x54
-#define CGRA_REG_OUT1_ADDR 0x58
-#define CGRA_REG_OUT1_SIZE 0x5C
-#define CGRA_REG_OUT2_ADDR 0x60
-#define CGRA_REG_OUT2_SIZE 0x64
-#define CGRA_REG_OUT3_ADDR 0x68
-#define CGRA_REG_OUT3_SIZE 0x6C
+#define STRELA_REG_OUT0_ADDR 0x50
+#define STRELA_REG_OUT0_SIZE 0x54
+#define STRELA_REG_OUT1_ADDR 0x58
+#define STRELA_REG_OUT1_SIZE 0x5C
+#define STRELA_REG_OUT2_ADDR 0x60
+#define STRELA_REG_OUT2_SIZE 0x64
+#define STRELA_REG_OUT3_ADDR 0x68
+#define STRELA_REG_OUT3_SIZE 0x6C
 
-#define CGRA_REG_CNTR_CONF    0x90
-#define CGRA_REG_CNTR_EXEC    0x94
-#define CGRA_REG_CNTR_STALL   0x98
-#define CGRA_REG_OUT_ARB_HOLD 0xA0
+#define STRELA_REG_CNTR_CONF    0x90
+#define STRELA_REG_CNTR_EXEC    0x94
+#define STRELA_REG_CNTR_STALL   0x98
+#define STRELA_REG_OUT_ARB_HOLD 0xA0
 
-#define CGRA_REG_OPA 0xF0
-#define CGRA_REG_OPB 0xF4
-#define CGRA_REG_OPR 0xF8 // Read only (Result = A + B)
+#define STRELA_REG_OPA 0xF0
+#define STRELA_REG_OPB 0xF4
+#define STRELA_REG_OPR 0xF8 // Read only (Result = A + B)
 
-#define CGRA_REG_RESET_DMA 0xF8  // Write only
+#define STRELA_REG_RESET_DMA 0xF8  // Write only
 
-#define CGRA_PACK_STRIDE_COUNT(stride, count) ((stride << 16) | stride*count)
+#define STRELA_PACK_STRIDE_COUNT(stride, count) ((stride << 16) | stride*count)
 
 #endif
