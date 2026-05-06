@@ -27,8 +27,8 @@
 #include <linux/platform_device.h>
 #include <linux/random.h>
 
-#include "cgra_regs.h"
-#include "cgra_dma.h"
+#include "strela_regs.h"
+#include "strela.h"
 
 #if 0
 static size_t dma_alloc_size = CGRA_DATA_REGION_SIZE;

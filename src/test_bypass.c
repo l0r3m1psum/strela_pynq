@@ -1,4 +1,4 @@
-#include "cgra_dma.h"
+#include "strela.h"
 
 #include <stdio.h>
 #include <stdbool.h>
