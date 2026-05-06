@@ -13,6 +13,7 @@
  * https://docs.kernel.org/driver-api/infrastructure.html#c.device
  * https://docs.kernel.org/driver-api/infrastructure.html#c.class
  * https://docs.kernel.org/core-api/kernel-api.html#char-devices
+ * https://docs.kernel.org/core-api/idr.html#ida-usage
  */
 #include <linux/cdev.h>
 #include <linux/device.h>
@@ -40,16 +41,21 @@ static const struct of_device_id dev_ids[] = {
 };
 MODULE_DEVICE_TABLE(of, dev_ids);
 
+static struct class *strela_class;
+static dev_t strela_base_dev_num;
+static DEFINE_IDA(strela_ida);
+#define MAX_STRELA_NUM 4
+
 struct strela_data {
-	struct device *dev;
+	struct device *dev; // TODO: rename to physical_dev also it can be removed since it can be retrieved form the parent pointer
 	void __iomem *base_addr;
 	dma_addr_t dma_addr;
 	struct page *dma_page;
 
+	int minor; // TODO: remove this that is already contained in dev_num
 	dev_t dev_num;
 	struct cdev cdev;
-	struct class *class;
-	struct device *device;
+	struct device *device; // TODO: rename to logical_dev
 };
 
 static int
@@ -79,7 +85,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			CGRA_control_t cgra_ctrl;
 
 			if (copy_from_user(&cgra_ctrl, (void __user *)ioctl_param, sizeof cgra_ctrl)) {
-				dev_err(dev, "Copy from user failed");
+				dev_err(priv->device, "Copy from user failed");
 				ret = -EFAULT;
 				break;
 			}
@@ -162,10 +168,10 @@ strela_mmap(struct file *file, struct vm_area_struct *vma) {
 		return -EINVAL;
 	}
 
-	ret = dma_mmap_pages(priv->dev, vma, CGRA_DATA_REGION_SIZE, priv->dma_page);
+	ret = dma_mmap_pages(dev, vma, CGRA_DATA_REGION_SIZE, priv->dma_page);
 
 	if (ret < 0) {
-		dev_err(dev, "dma_mmap_pages failed with error: %d", ret);
+		dev_err(priv->device, "dma_mmap_pages failed with error: %d", ret);
 	}
 
 	return ret;
@@ -179,22 +185,17 @@ static struct file_operations strela_fops = {
 	.release        = strela_release,
 };
 
-static int
-strela_probe(struct platform_device *pdev) {
+static int strela_probe(struct platform_device *pdev) {
 	struct device *dev = &pdev->dev;
-	struct strela_data *priv = NULL;
+	struct strela_data *priv;
+	int ret;
 
-	priv = devm_kzalloc(dev, sizeof *priv, GFP_KERNEL);
-	if (!priv) {
-		dev_err(dev, "Out of memory");
-		return -ENOMEM;
-	}
+	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+	if (!priv) return -ENOMEM;
 
 	platform_set_drvdata(pdev, priv);
-
 	priv->dev = dev;
 
-	// cat /proc/iomem
 	priv->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base_addr)) {
 		dev_err(dev, "Failed to map AXI memory");
@@ -222,64 +223,51 @@ strela_probe(struct platform_device *pdev) {
 		return -ENOMEM;
 	}
 
-	int ret;
-
-	// grep strela /proc/devices see dynamically allocated major number.
-	enum { MAX_STRELA_NUM = 2 };
-	ret = alloc_chrdev_region(&priv->dev_num, 0, MAX_STRELA_NUM, "strela");
-	if (ret < 0)
-		return ret;
+	// grep strela /proc/devices see dynamically allocated major number
+	priv->minor = ida_alloc_max(&strela_ida, MAX_STRELA_NUM - 1, GFP_KERNEL);
+	if (priv->minor < 0) {
+		dev_err(dev, "No minor numbers available\n");
+		ret = priv->minor;
+		goto free_dma;
+	}
+	priv->dev_num = MKDEV(MAJOR(strela_base_dev_num), priv->minor);
 
 	cdev_init(&priv->cdev, &strela_fops);
 	priv->cdev.owner = THIS_MODULE;
 	ret = cdev_add(&priv->cdev, priv->dev_num, 1);
-	if (ret < 0)
-		goto unregister_region;
+	if (ret < 0) {
+		dev_err(dev, "Failed to add cdev\n");
+		goto free_ida;
+	}
 
-	// ls /sys/class/strela
-	priv->class = class_create("strela");
-	if (IS_ERR(priv->class)) {
-		ret = PTR_ERR(priv->class);
+	// ls /dev/strela%d
+	priv->device = device_create(strela_class, dev, priv->dev_num, priv, "strela%d", priv->minor);
+	if (IS_ERR(priv->device)) {
+		ret = PTR_ERR(priv->device);
 		goto delete_cdev;
 	}
 
-	int minor = MINOR(priv->dev_num);
-	// ls /dev/strela%d
-	priv->device = device_create(priv->class, priv->dev, priv->dev_num, NULL, "strela%d", minor);
-	if (IS_ERR(priv->device)) {
-		ret = PTR_ERR(priv->device);
-		goto destroy_class;
-	}
-
-	dev_info(dev, "STRELA loaded!");
-
+	dev_info(dev, "STRELA instance %d loaded!\n", priv->minor);
 	return 0;
 
-destroy_class:
-	class_destroy(priv->class);
 delete_cdev:
 	cdev_del(&priv->cdev);
-unregister_region:
-	unregister_chrdev_region(priv->dev_num, 1);
-	dma_free_pages(
-		dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL
-	);
+free_ida:
+	ida_free(&strela_ida, priv->minor);
+free_dma:
+	dma_free_pages(dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
 	return ret;
 }
 
-static void
-strela_remove(struct platform_device *pdev) {
-	struct device *dev = &pdev->dev;
+static void strela_remove(struct platform_device *pdev) {
 	struct strela_data *priv = platform_get_drvdata(pdev);
 
-	dma_free_pages(
-		dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL
-	);
-	device_destroy(priv->class, priv->dev_num);
-	class_destroy(priv->class);
+	device_destroy(strela_class, priv->dev_num);
 	cdev_del(&priv->cdev);
-	unregister_chrdev_region(priv->dev_num, 1);
-	dev_info(dev, "STRELA removed!");
+	ida_free(&strela_ida, priv->minor);
+	dma_free_pages(priv->dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
+
+	dev_info(priv->dev, "STRELA instance %d removed!\n", priv->minor);
 }
 
 static struct platform_driver dev_driver = {
@@ -291,7 +279,50 @@ static struct platform_driver dev_driver = {
 	}
 };
 
-module_platform_driver(dev_driver);
+static int __init
+strela_driver_init(void) {
+	int ret;
+
+	ret = alloc_chrdev_region(&strela_base_dev_num, 0, MAX_STRELA_NUM, "strela");
+	if (ret < 0) {
+		pr_err("STRELA: Failed to allocate chrdev region\n");
+		return ret;
+	}
+
+	// ls /sys/class/strela
+	strela_class = class_create("strela");
+	if (IS_ERR(strela_class)) {
+		pr_err("STRELA: Failed to create class\n");
+		ret = PTR_ERR(strela_class);
+		goto unregister_chrdev;
+	}
+
+	ret = platform_driver_register(&dev_driver);
+	if (ret < 0) {
+		pr_err("STRELA: Failed to register platform driver\n");
+		goto destroy_class;
+	}
+
+	pr_info("STRELA: Global driver initialized\n");
+	return 0;
+
+destroy_class:
+	class_destroy(strela_class);
+unregister_chrdev:
+	unregister_chrdev_region(strela_base_dev_num, MAX_STRELA_NUM);
+	return ret;
+}
+
+static void __exit
+strela_driver_exit(void) {
+	platform_driver_unregister(&dev_driver);
+	class_destroy(strela_class);
+	unregister_chrdev_region(strela_base_dev_num, MAX_STRELA_NUM);
+	pr_info("STRELA: Global driver removed\n");
+}
+
+module_init(strela_driver_init);
+module_exit(strela_driver_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Diego Bellani");
