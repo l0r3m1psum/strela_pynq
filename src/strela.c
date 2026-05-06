@@ -42,20 +42,18 @@ static const struct of_device_id dev_ids[] = {
 MODULE_DEVICE_TABLE(of, dev_ids);
 
 static struct class *strela_class;
-static dev_t strela_base_dev_num;
+static dev_t strela_base_dev_num; // Only the major number
 static DEFINE_IDA(strela_ida);
 #define MAX_STRELA_NUM 4
 
 struct strela_data {
-	struct device *dev; // TODO: rename to physical_dev also it can be removed since it can be retrieved form the parent pointer
 	void __iomem *base_addr;
 	dma_addr_t dma_addr;
 	struct page *dma_page;
 
-	int minor; // TODO: remove this that is already contained in dev_num
-	dev_t dev_num;
+	dev_t dev_num; // major + minor
 	struct cdev cdev;
-	struct device *device; // TODO: rename to logical_dev
+	struct device *logical_dev;
 };
 
 static int
@@ -76,7 +74,7 @@ static long
 strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param) {
 	long ret = 0;
 	struct strela_data *priv = file->private_data;
-	struct device *dev = priv->dev;
+	struct device *physical_dev = priv->logical_dev->parent;
 	void __iomem *base_addr = priv->base_addr;
 	dma_addr_t dma_addr = priv->dma_addr;
 
@@ -85,7 +83,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			CGRA_control_t cgra_ctrl;
 
 			if (copy_from_user(&cgra_ctrl, (void __user *)ioctl_param, sizeof cgra_ctrl)) {
-				dev_err(priv->device, "Copy from user failed");
+				dev_err(priv->logical_dev, "Copy from user failed");
 				ret = -EFAULT;
 				break;
 			}
@@ -119,7 +117,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 		}
 		case IOCTL_CGRA_CONFIG: {
 			// FLUSH_D_CACHE();
-			dma_sync_single_for_device(dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE);
+			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE);
 
 			writel(CGRA_CMD_CLEAR_STATE,  base_addr + CGRA_REG_CTRL);
 			writel(CGRA_CMD_CLEAR_CONFIG, base_addr + CGRA_REG_CTRL);
@@ -136,7 +134,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 		}
 		case IOCTL_CGRA_EXEC: {
 			// FLUSH_D_CACHE();
-			dma_sync_single_for_device(dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE);
+			dma_sync_single_for_device(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_TO_DEVICE);
 			writel(CGRA_CMD_START_EXEC, base_addr + CGRA_REG_CTRL);
 
 			u32 val = 0;
@@ -145,7 +143,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 				val, (val & CGRA_CMD_DONE_EXEC), 10, 500000
 			);
 			// INVAL_D_CACHE();
-			dma_sync_single_for_cpu(dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_FROM_DEVICE);
+			dma_sync_single_for_cpu(physical_dev, dma_addr, CGRA_DATA_REGION_SIZE, DMA_FROM_DEVICE);
 			break;
 		}
 		default: {
@@ -161,17 +159,17 @@ static int
 strela_mmap(struct file *file, struct vm_area_struct *vma) {
 	int ret = 0;
 	struct strela_data *priv = file->private_data;
-	struct device *dev = priv->dev;
+	struct device *physical_dev = priv->logical_dev->parent;
 	unsigned long requested_size = vma->vm_end - vma->vm_start;
 
 	if (requested_size != CGRA_DATA_REGION_SIZE) {
 		return -EINVAL;
 	}
 
-	ret = dma_mmap_pages(dev, vma, CGRA_DATA_REGION_SIZE, priv->dma_page);
+	ret = dma_mmap_pages(physical_dev, vma, CGRA_DATA_REGION_SIZE, priv->dma_page);
 
 	if (ret < 0) {
-		dev_err(priv->device, "dma_mmap_pages failed with error: %d", ret);
+		dev_err(physical_dev, "dma_mmap_pages failed with error: %d", ret);
 	}
 
 	return ret;
@@ -186,19 +184,18 @@ static struct file_operations strela_fops = {
 };
 
 static int strela_probe(struct platform_device *pdev) {
-	struct device *dev = &pdev->dev;
+	struct device *physical_dev = &pdev->dev;
 	struct strela_data *priv;
-	int ret;
+	int minor, ret;
 
-	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+	priv = devm_kzalloc(physical_dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv) return -ENOMEM;
 
 	platform_set_drvdata(pdev, priv);
-	priv->dev = dev;
 
 	priv->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base_addr)) {
-		dev_err(dev, "Failed to map AXI memory");
+		dev_err(physical_dev, "Failed to map AXI memory");
 		return PTR_ERR(priv->base_addr);
 	}
 
@@ -210,52 +207,52 @@ static int strela_probe(struct platform_device *pdev) {
 		u32 response = readl(priv->base_addr + CGRA_REG_OPR);
 
 		if (response != challenge1 + challenge2) {
-			dev_err(dev, "Adder challenge failed");
+			dev_err(physical_dev, "Adder challenge failed");
 			return -EIO;
 		}
 	}
 
 	priv->dma_page = dma_alloc_pages(
-		dev, CGRA_DATA_REGION_SIZE, &priv->dma_addr, DMA_BIDIRECTIONAL, GFP_KERNEL
+		physical_dev, CGRA_DATA_REGION_SIZE, &priv->dma_addr, DMA_BIDIRECTIONAL, GFP_KERNEL
 	);
 	if (!priv->dma_page) {
-		dev_err(dev, "Unable to allocate DMA region");
+		dev_err(physical_dev, "Unable to allocate DMA region");
 		return -ENOMEM;
 	}
 
 	// grep strela /proc/devices see dynamically allocated major number
-	priv->minor = ida_alloc_max(&strela_ida, MAX_STRELA_NUM - 1, GFP_KERNEL);
-	if (priv->minor < 0) {
-		dev_err(dev, "No minor numbers available\n");
-		ret = priv->minor;
+	minor = ida_alloc_max(&strela_ida, MAX_STRELA_NUM - 1, GFP_KERNEL);
+	if (minor < 0) {
+		dev_err(physical_dev, "No minor numbers available\n");
+		ret = minor;
 		goto free_dma;
 	}
-	priv->dev_num = MKDEV(MAJOR(strela_base_dev_num), priv->minor);
+	priv->dev_num = MKDEV(MAJOR(strela_base_dev_num), minor);
 
 	cdev_init(&priv->cdev, &strela_fops);
 	priv->cdev.owner = THIS_MODULE;
 	ret = cdev_add(&priv->cdev, priv->dev_num, 1);
 	if (ret < 0) {
-		dev_err(dev, "Failed to add cdev\n");
+		dev_err(physical_dev, "Failed to add cdev\n");
 		goto free_ida;
 	}
 
 	// ls /dev/strela%d
-	priv->device = device_create(strela_class, dev, priv->dev_num, priv, "strela%d", priv->minor);
-	if (IS_ERR(priv->device)) {
-		ret = PTR_ERR(priv->device);
+	priv->logical_dev = device_create(strela_class, physical_dev, priv->dev_num, priv, "strela%d", minor);
+	if (IS_ERR(priv->logical_dev)) {
+		ret = PTR_ERR(priv->logical_dev);
 		goto delete_cdev;
 	}
 
-	dev_info(dev, "STRELA instance %d loaded!\n", priv->minor);
+	dev_info(physical_dev, "STRELA instance %d loaded!\n", minor);
 	return 0;
 
 delete_cdev:
 	cdev_del(&priv->cdev);
 free_ida:
-	ida_free(&strela_ida, priv->minor);
+	ida_free(&strela_ida, minor);
 free_dma:
-	dma_free_pages(dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
+	dma_free_pages(physical_dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
 	return ret;
 }
 
@@ -264,10 +261,10 @@ static void strela_remove(struct platform_device *pdev) {
 
 	device_destroy(strela_class, priv->dev_num);
 	cdev_del(&priv->cdev);
-	ida_free(&strela_ida, priv->minor);
-	dma_free_pages(priv->dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
+	ida_free(&strela_ida, MINOR(priv->dev_num));
+	dma_free_pages(priv->logical_dev->parent, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL);
 
-	dev_info(priv->dev, "STRELA instance %d removed!\n", priv->minor);
+	dev_info(priv->logical_dev->parent, "STRELA instance %d removed!\n", MINOR(priv->dev_num));
 }
 
 static struct platform_driver dev_driver = {
