@@ -1,18 +1,38 @@
+/* The Linux kernel documentation is a bit scattered all over the place. Here I
+ * try to gather some useful pointer for future reference.
+ *
+ * Module entry and exit points are documented here.
+ * https://docs.kernel.org/driver-api/basics.html#driver-entry-and-exit-points
+ *
+ * devm_ API is documented here, together with the lower level devres_ API
+ * https://docs.kernel.org/driver-api/basics.html#device-resource-management
+ *
+ * The DMA API is documented here
+ * https://docs.kernel.org/core-api/dma-api.html
+ *
+ * https://docs.kernel.org/driver-api/infrastructure.html#c.device
+ * https://docs.kernel.org/driver-api/infrastructure.html#c.class
+ * https://docs.kernel.org/core-api/kernel-api.html#char-devices
+ */
+#include <linux/cdev.h>
+#include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/random.h>
 
-#include <linux/cdev.h>
-// #include <linux/delay.h>
-#include <linux/iopoll.h>
-#include <linux/device.h>
-
 #include "cgra_regs.h"
 #include "cgra_dma.h"
+
+#if 0
+static size_t dma_alloc_size = CGRA_DATA_REGION_SIZE;
+module_param(dma_alloc_size, size_t, 0644);
+MODULE_PARM_DESC(dma_alloc_size, "Allocation size for DMA area.");
+#endif
 
 static const struct of_device_id dev_ids[] = {
 	{ .compatible = "xlnx,cgra-axi-lite-1.0"},
@@ -34,15 +54,15 @@ struct strela_data {
 
 static int
 strela_open(struct inode *inode, struct file *file) {
-	// TODO: try_module_get(THIS_MODULE) ???
 	struct strela_data *priv = container_of(inode->i_cdev, struct strela_data, cdev);
+
 	file->private_data = priv;
+
 	return 0;
 }
 
 static int
 strela_release(struct inode *inode, struct file *file) {
-	// TODO: module_put(THIS_MODULE) ???
 	return 0;
 }
 
@@ -60,10 +80,12 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 			if (copy_from_user(&cgra_ctrl, (void __user *)ioctl_param, sizeof cgra_ctrl)) {
 				dev_err(dev, "Copy from user failed");
-				ret = -ENOMEM; // TODO: correct return code?
+				ret = -EFAULT;
 				break;
 			}
 
+			// NOTE: maybe in this context it is better to use writel_relaxed
+			// and conclude with a writel at the end to flush everything.
 			writel(dma_addr + cgra_ctrl.conf_offs,      base_addr + CGRA_REG_CONF_ADDR);
 			writel(cgra_ctrl.conf_count*CGRA_WORD_SIZE, base_addr + CGRA_REG_CONF_SIZE);
 
@@ -150,8 +172,8 @@ strela_mmap(struct file *file, struct vm_area_struct *vma) {
 }
 
 static struct file_operations strela_fops = {
-	.owner          = THIS_MODULE, // TODO: ???
-	.unlocked_ioctl = strela_ioctl,
+	.owner          = THIS_MODULE, // https://lwn.net/Articles/31474/#:~:text=drivers%20got%20an-,owner%20field,-which%20points%20to
+	.unlocked_ioctl = strela_ioctl, // https://lwn.net/Articles/119652/
 	.mmap           = strela_mmap,
 	.open           = strela_open,
 	.release        = strela_release,
@@ -172,6 +194,7 @@ strela_probe(struct platform_device *pdev) {
 
 	priv->dev = dev;
 
+	// cat /proc/iomem
 	priv->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base_addr)) {
 		dev_err(dev, "Failed to map AXI memory");
@@ -201,8 +224,9 @@ strela_probe(struct platform_device *pdev) {
 
 	int ret;
 
-	// TODO: ???
-	ret = alloc_chrdev_region(&priv->dev_num, 0, 1, "cgra_device");
+	// grep strela /proc/devices see dynamically allocated major number.
+	enum { MAX_STRELA_NUM = 2 };
+	ret = alloc_chrdev_region(&priv->dev_num, 0, MAX_STRELA_NUM, "strela");
 	if (ret < 0)
 		return ret;
 
@@ -212,15 +236,16 @@ strela_probe(struct platform_device *pdev) {
 	if (ret < 0)
 		goto unregister_region;
 
-	// TODO: ???
+	// ls /sys/class/strela
 	priv->class = class_create("strela");
 	if (IS_ERR(priv->class)) {
 		ret = PTR_ERR(priv->class);
 		goto delete_cdev;
 	}
 
-	// TODO: ???
-	priv->device = device_create(priv->class, NULL, priv->dev_num, NULL, "cgra0");
+	int minor = MINOR(priv->dev_num);
+	// ls /dev/strela%d
+	priv->device = device_create(priv->class, priv->dev, priv->dev_num, NULL, "strela%d", minor);
 	if (IS_ERR(priv->device)) {
 		ret = PTR_ERR(priv->device);
 		goto destroy_class;
@@ -236,6 +261,9 @@ delete_cdev:
 	cdev_del(&priv->cdev);
 unregister_region:
 	unregister_chrdev_region(priv->dev_num, 1);
+	dma_free_pages(
+		dev, CGRA_DATA_REGION_SIZE, priv->dma_page, priv->dma_addr, DMA_BIDIRECTIONAL
+	);
 	return ret;
 }
 
