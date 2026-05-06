@@ -27,8 +27,8 @@ struct strela_ctx {
 };
 
 static bool
-strela_ctx_init(strela_ctx *ctx) {
-    int fd = open("/dev/strela0", O_RDWR);
+strela_ctx_init(strela_ctx *ctx, const char *dev_path) {
+    int fd = open(dev_path, O_RDWR);
 
     if (fd == -1) {
         perror("open");
@@ -219,10 +219,11 @@ static void inspect_mem(const char *name, int32_t *mem, size_t len) {
 
 #define countof(x) (sizeof (x) / sizeof *(x))
 
-int main(void) {
+static
+int test_device(const char *dev_path) {
 
     strela_ctx ctx = {0};
-    if (strela_ctx_init(&ctx) == -1) {
+    if (strela_ctx_init(&ctx, dev_path) == -1) {
         fprintf(stderr, "Cannot initialize STRELA context\n");
         return 1;
     }
@@ -284,4 +285,11 @@ int main(void) {
     }
 
     return errors != 0;
+}
+
+int main(void) {
+    test_device("/dev/strela0");
+    printf("------------------\n");
+    test_device("/dev/strela1");
+    return 0;
 }
