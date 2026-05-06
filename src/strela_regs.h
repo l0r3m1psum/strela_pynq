@@ -48,6 +48,6 @@
 
 #define STRELA_REG_RESET_DMA 0xF8  // Write only
 
-#define STRELA_PACK_STRIDE_COUNT(stride, count) ((stride << 16) | stride*count)
+#define STRELA_MKINPSIZE(stride, count) ((stride << 16) | stride*count)
 
 #endif
