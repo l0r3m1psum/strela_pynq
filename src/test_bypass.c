@@ -91,6 +91,8 @@ strela_bypass(
     uint32_t *mem_inp = ctx->base + INPUT_OFFSET;
     const uint32_t *mem_out = ctx->base + OUTPUT_OFFSET;
 
+    memset(ctx->base, 0, STRELA_DATA_REGION_SIZE);
+
     memcpy(mem_cfg, bypass_kernel, sizeof bypass_kernel);
     memcpy(mem_inp, input, sizeof *input * len);
 
@@ -145,8 +147,8 @@ strela_relu(
     static const uint32_t relu_kernel[KRNL_SIZE] = {
         0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
         0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
-        0x00004083, 0x00CC0300, 0x000000A0, 0x00000000, 0x00000000, // 4
-        0x00000241, 0x020C0300, 0x00000098, 0x00000000, 0x00000000, // 0
+        0x00004083, 0x20CC0300, 0x000000A0, 0x00000000, 0x00000000, // 4
+        0x00000241, 0x020C0300, 0x0000009A, 0x00000000, 0x00000000, // 0
 
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
@@ -171,6 +173,8 @@ strela_relu(
     uint32_t *mem_cfg = ctx->base + CONFIG_OFFSET;
     uint32_t *mem_inp = ctx->base + INPUT_OFFSET;
     const uint32_t *mem_out = ctx->base + OUTPUT_OFFSET;
+
+    memset(ctx->base, 0, STRELA_DATA_REGION_SIZE);
 
     memcpy(mem_cfg, relu_kernel, sizeof relu_kernel);
     memcpy(mem_inp, input, sizeof *input * len);

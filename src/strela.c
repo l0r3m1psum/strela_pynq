@@ -123,7 +123,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 			writel(STRELA_CMD_CLEAR_STATE,  base_addr + STRELA_REG_CTRL);
 			writel(STRELA_CMD_CLEAR_CONFIG, base_addr + STRELA_REG_CTRL);
-			writel(1,                     base_addr + STRELA_REG_RESET_DMA);
+			writel(1,                       base_addr + STRELA_REG_RESET_DMA);
 
 			writel(STRELA_CMD_LOAD_CONFIG, base_addr + STRELA_REG_CTRL);
 
