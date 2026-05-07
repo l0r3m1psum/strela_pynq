@@ -22,6 +22,15 @@
 #         };
 # };
 
+# TODO: maybe change the compatible (of amba_pl) and add fpga-mgr (to amba_pl)...
+# compatible = "fpga-region";
+# fpga-mgr = <&devcfg>;
+# This should allow for automatic configuration of the PS-PL interface as
+# documented below
+# https://docs.kernel.org/driver-api/fpga/fpga-region.html
+# https://www.kernel.org/doc/Documentation/devicetree/bindings/fpga/fpga-region.txt
+# but alas it doesn't work...
+
 function push_if_eq(n) {
     if (level == n) { level++ } else { print "bad" >> "/dev/stderr"; exit 1 }
 }
