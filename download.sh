@@ -14,8 +14,7 @@ scp src/test_bypass root@${addr}:/root
 # mount -t configfs none /sys/kernel/config
 ssh root@${addr} << EOF
 	rmmod strela
-	insmod strela.ko
-	insmod xilinx-afi.ko
+	rmmod xilinx-afi
 
 	if [ -d /sys/kernel/config/device-tree/overlays/strela ]
 	then
@@ -26,12 +25,15 @@ ssh root@${addr} << EOF
 	echo "${name}.dtbo" >/sys/kernel/config/device-tree/overlays/strela/path
 	printf "status: " && cat /sys/kernel/config/device-tree/overlays/strela/status
 
+	insmod xilinx-afi.ko
+	insmod strela.ko
+
 	ls /sys/class/strela
 	grep strela /proc/devices
 	grep axi_lite /proc/iomem
 	ls /dev/strela*
 
 	echo dmesg
-	dmesg | tail
+	dmesg | tail -n 20
 	./test_bypass
 EOF
