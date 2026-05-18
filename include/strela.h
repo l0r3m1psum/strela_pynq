@@ -1,5 +1,5 @@
-#ifndef STRELA_DMA_H
-#define STRELA_DMA_H
+#ifndef STRELA_H
+#define STRELA_H
  
 #include <linux/types.h>
 #include <linux/ioctl.h>
