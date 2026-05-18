@@ -31,6 +31,7 @@ chmod -R 755 /tools/Xilinx
 sudo /tools/Xilinx/Vitis/2024.2/scripts/installLibs.sh
 sudo apt install x11-utils unzip
 sudo locale-gen en_US.UTF-8
+# Dependencies for building the kernel module.
 sudo apt install build-essential flex bison gcc-13-arm-linux-gnueabihf bc device-tree-compiler
 ```
 

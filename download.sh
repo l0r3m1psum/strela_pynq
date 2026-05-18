@@ -14,7 +14,6 @@ FIELD_WrDataThreshold=0xF00 # It was originally there...
 
 scp "${name}.bit.bin" "${name}.dtbo" root@${addr}:/lib/firmware
 scp src/strela.ko root@${addr}:/root
-scp src/xilinx-afi.ko root@${addr}:/root
 scp src/test_bypass root@${addr}:/root
 
 # Assuming configfs is mounted
@@ -23,11 +22,9 @@ ssh root@${addr} << EOF
 	set -x
 
 	rmmod strela
-	rmmod xilinx-afi
 
-	# This should be handled by the "FPGA Region" but it is not...
-	devmem2 $(printf 0x%x $(($AXI_HP0 + $AFI_RDCHAN_CTRL))) w $FIELD_32BitEn
-	devmem2 $(printf 0x%x $(($AXI_HP0 + $AFI_WRCHAN_CTRL))) w $(printf 0x%x $(($FIELD_WrDataThreshold | $FIELD_32BitEn)))
+	# devmem2 $(printf 0x%x $(($AXI_HP0 + $AFI_RDCHAN_CTRL))) w $FIELD_32BitEn
+	# devmem2 $(printf 0x%x $(($AXI_HP0 + $AFI_WRCHAN_CTRL))) w $(printf 0x%x $(($FIELD_WrDataThreshold | $FIELD_32BitEn)))
 
 	if [ -d /sys/kernel/config/device-tree/overlays/strela ]
 	then
@@ -37,9 +34,6 @@ ssh root@${addr} << EOF
 	echo "${name}.dtbo" >/sys/kernel/config/device-tree/overlays/strela/path
 	cat /sys/kernel/config/device-tree/overlays/strela/status
 
-	# This module doesn't do what it should i.e configure AXI FIFO Interface
-	# with information from the device tree...
-	insmod xilinx-afi.ko
 	insmod strela.ko
 
 	ls /sys/class/strela

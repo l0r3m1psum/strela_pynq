@@ -32,6 +32,7 @@
 #include "strela.h"
 
 #if 0
+#include <linux/moduleparam.h>
 static size_t dma_alloc_size = STRELA_DATA_REGION_SIZE;
 module_param(dma_alloc_size, size_t, 0644);
 MODULE_PARM_DESC(dma_alloc_size, "Allocation size for DMA area.");

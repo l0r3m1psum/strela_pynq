@@ -20,7 +20,7 @@
 			};
 			afi0: afi0@f8008000 {
 				status = "okay";
-				compatible = "xlnx,afi-fpga";
+				compatible = "xlnx,zynq-afi-fpga";
 				#address-cells = <1>;
 				reg = <0xF8008000 0x1000>;
 				#size-cells = <0>;
