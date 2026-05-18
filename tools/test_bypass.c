@@ -1,4 +1,4 @@
-#include "strela.h"
+#include "strela_ioctl.h"
 
 #include <stdio.h>
 #include <stdbool.h>

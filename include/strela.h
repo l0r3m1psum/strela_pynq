@@ -1,46 +1,26 @@
-#ifndef STRELA_H
-#define STRELA_H
- 
-#include <linux/types.h>
-#include <linux/ioctl.h>
+#include <stdint.h>
+#include <stdbool.h>
 
-struct STRELA_control {
-    __u32 a;
-    __u32 b;
-
-    __u32 conf_offs;
-    __u32 conf_count;
-
-    __u32 in0_offs;
-    __u32 in0_count;
-    __u32 in0_stride;
-    __u32 in1_offs;
-    __u32 in1_count;
-    __u32 in1_stride;
-    __u32 in2_offs;
-    __u32 in2_count;
-    __u32 in2_stride;
-    __u32 in3_offs;
-    __u32 in3_count;
-    __u32 in3_stride;
-
-    __u32 out0_offs;
-    __u32 out0_count;
-    __u32 out1_offs;
-    __u32 out1_count;
-    __u32 out2_offs;
-    __u32 out2_count;
-    __u32 out3_offs;
-    __u32 out3_count;
+typedef enum strela_err strela_err;
+enum strela_err {
+	STRELA_ERR_OK,
+	STRELA_ERR_ARG,
 };
 
-#define STRELA_WORD_SIZE 4
-#define STRELA_DATA_REGION_SIZE (0x100000 * 4) // 4 MB
+/* STRELA result type. Negative numbers are used for STRELA specific errors
+ * while positive ones shall be interpreted as classic errno(3) errors.
+ */
+typedef struct strela_res strela_res;
+struct strela_res { int errnum; };
 
-#define CG_IOCTL_MAGIC_NUM 'x'
+inline bool strela_res_ok(strela_res res) { return res.errnum == STRELA_ERR_OK; }
 
-#define IOCTL_STRELA_CONTROL _IOW(CG_IOCTL_MAGIC_NUM, 1, struct STRELA_control)
-#define IOCTL_STRELA_CONFIG  _IO(CG_IOCTL_MAGIC_NUM, 2)
-#define IOCTL_STRELA_EXEC    _IO(CG_IOCTL_MAGIC_NUM, 3)
+/* STRELA per device context.
+ */
+typedef struct strela_ctx strela_ctx;
+struct strela_ctx {
+	int fd;
+	uint32_t *base;
 
-#endif
+	strela_res res;
+};

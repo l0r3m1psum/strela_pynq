@@ -1,0 +1,126 @@
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+#include "strela.h"
+#include "strela_ioctl.h"
+
+#define COUNTOF(x) (sizeof (x) / sizeof *(x))
+
+strela_res
+strela_device_count(int *count) {
+	int local_count = 0;
+	char path_buf[] = "/dev/strelaX";
+	int last_char = COUNTOF(path_buf) - 1 - 1;
+	strela_res res = {0};
+
+	// We need to rest errno to determine if access failed or the file just does
+	// not exists.
+	errno = 0;
+
+	for (int i = 0; i < 9; i++) {
+		path_buf[last_char] = '0' + i;
+		if (access(path_buf, F_OK) == -1) {
+			break;
+		} else {
+			local_count++;
+		}
+	}
+
+	*count = local_count;
+	res.errnum = errno;
+
+	if (errno != 0) {
+		perror("access");
+		errno = 0;
+	}
+
+	return res;
+}
+
+void
+strela_ctx_init(strela_ctx *ctx, int which_strela) {
+	char path_buf[128] = {0};
+	int ret = 0, fd = 0;
+	uint32_t *base = NULL;
+
+	if (strela_res_ok(ctx->res)) {
+		if (which_strela < 0) {
+			ctx->res.errnum = -STRELA_ERR_ARG;
+		}
+
+		ret = snprintf(path_buf, sizeof path_buf, "/dev/strela%d", which_strela);
+
+		assert(ret >= 0);
+
+		if (strela_res_ok(ctx->res)) {
+			fd = open(path_buf, O_RDWR);
+			if (fd == -1) {
+				perror("open");
+				ctx->res.errnum = errno;
+			}
+		}
+
+		if (strela_res_ok(ctx->res)) {
+			base = mmap(NULL, STRELA_DATA_REGION_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			if (base == MAP_FAILED) {
+				perror("mmap");
+				ctx->res.errnum = errno;
+			}
+		}
+
+		if (!strela_res_ok(ctx->res)) {
+			close(fd);
+		} else {
+			ctx->fd = fd;
+			ctx->base = base;
+		}
+	}
+}
+
+void
+strela_ctx_deinit(strela_ctx *ctx) {
+	if (strela_res_ok(ctx->res)) {
+		if (close(ctx->fd) == -1) {
+			perror("close");
+			ctx->res.errnum = errno;
+		}
+
+		if (strela_res_ok(ctx->res)) {
+			if (munmap(ctx->base, STRELA_DATA_REGION_SIZE) == -1) {
+				perror("munmap");
+				ctx->res.errnum = errno;
+			}
+
+		}
+	}
+}
+
+// Bump allocator for data /////////////////////////////////////////////////////
+
+void *strela_alloc_data(strela_ctx *ctx, size_t size) {
+	// Can allocate only multiples of STRELA_WORD_SIZE aligned to STRELA_WORD_SIZE
+	return NULL;
+}
+
+void strela_free_data(strela_ctx *ctx, void *ptr) {
+	// Bumb allocator free does nothing.
+}
+
+void strela_free_all_data(strela_ctx *ctx) {
+	// Set base pointer to 0
+}
+
+// Pool allocator for kernels.//////////////////////////////////////////////////
+
+void *strela_alloc_kernel(strela_ctx *ctx) {
+	return NULL;
+}
+
+void strela_free_kernel(strela_ctx *ctx) {
+	;
+}

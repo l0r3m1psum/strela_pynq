@@ -29,7 +29,7 @@
 #include <linux/random.h>
 
 #include "strela_regs.h"
-#include "strela.h"
+#include "strela_ioctl.h"
 
 #if 0
 #include <linux/moduleparam.h>

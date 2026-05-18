@@ -13,8 +13,8 @@ FIELD_32BitEn=0x1          # Enables the 32-bit interface (as opposed to 64-bit)
 FIELD_WrDataThreshold=0xF00 # It was originally there...
 
 scp "${name}.bit.bin" "${name}.dtbo" root@${addr}:/lib/firmware
-scp src/strela.ko root@${addr}:/root
-scp src/test_bypass root@${addr}:/root
+scp driver/strela.ko root@${addr}:/root
+scp tools/test_bypass root@${addr}:/root
 
 # Assuming configfs is mounted
 # mount -t configfs none /sys/kernel/config
