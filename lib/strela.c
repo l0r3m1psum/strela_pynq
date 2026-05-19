@@ -42,44 +42,48 @@ strela_device_count(int *count) {
 	return res;
 }
 
-void
-strela_ctx_init(strela_ctx *ctx, int which_strela) {
+strela_ctx
+strela_ctx_init(int which_strela) {
 	char path_buf[128] = {0};
 	int ret = 0, fd = 0;
 	uint32_t *base = NULL;
+	strela_ctx ctx = {0};
 
-	if (strela_res_ok(ctx->res)) {
-		if (which_strela < 0) {
-			ctx->res.errnum = -STRELA_ERR_ARG;
-		}
+	if (which_strela < 0) {
+		ctx.res.errnum = -STRELA_ERR_ARG;
+	}
 
-		ret = snprintf(path_buf, sizeof path_buf, "/dev/strela%d", which_strela);
+	ret = snprintf(path_buf, sizeof path_buf, "/dev/strela%d", which_strela);
 
-		assert(ret >= 0);
+	assert(ret >= 0);
 
-		if (strela_res_ok(ctx->res)) {
-			fd = open(path_buf, O_RDWR);
-			if (fd == -1) {
-				perror("open");
-				ctx->res.errnum = errno;
-			}
-		}
-
-		if (strela_res_ok(ctx->res)) {
-			base = mmap(NULL, STRELA_DATA_REGION_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-			if (base == MAP_FAILED) {
-				perror("mmap");
-				ctx->res.errnum = errno;
-			}
-		}
-
-		if (!strela_res_ok(ctx->res)) {
-			close(fd);
-		} else {
-			ctx->fd = fd;
-			ctx->base = base;
+	if (strela_res_ok(ctx.res)) {
+		fd = open(path_buf, O_RDWR);
+		if (fd == -1) {
+			perror("open");
+			ctx.res.errnum = errno;
 		}
 	}
+
+	if (strela_res_ok(ctx.res)) {
+		base = mmap(NULL, STRELA_DATA_REGION_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if (base == MAP_FAILED) {
+			perror("mmap");
+			ctx.res.errnum = errno;
+		}
+	}
+
+	if (!strela_res_ok(ctx.res)) {
+		close(fd);
+	} else {
+		ctx.fd = fd;
+		ctx.base = base;
+	}
+
+	// TODO: init kernel memory pool (say 128)
+	// TODO: init data bump allocator
+
+	return ctx;
 }
 
 void
@@ -100,27 +104,49 @@ strela_ctx_deinit(strela_ctx *ctx) {
 	}
 }
 
+// Pool allocator for kernels.//////////////////////////////////////////////////
+
+strela_kernel
+strela_kernel_get(strela_ctx *ctx) {
+	strela_kernel res = {0};
+	return res;
+}
+
+void
+strela_kernel_set(strela_ctx *ctx, strela_kernel kernel, uint32_t data[STRELA_KERNEL_SIZE]) {
+	// memcpy
+};
+
+void
+strela_kernel_put(strela_ctx *ctx, strela_kernel kernel) {
+	;
+}
+
 // Bump allocator for data /////////////////////////////////////////////////////
 
-void *strela_alloc_data(strela_ctx *ctx, size_t size) {
+strela_buffer
+strela_buffer_alloc(strela_ctx *ctx, int size) {
 	// Can allocate only multiples of STRELA_WORD_SIZE aligned to STRELA_WORD_SIZE
+	strela_buffer res = {0};
+	return res;
+}
+
+strela_word *
+strela_buffer_ptr(strela_ctx *ctx, strela_buffer) {
 	return NULL;
 }
 
-void strela_free_data(strela_ctx *ctx, void *ptr) {
+void
+strela_buffer_free(strela_ctx *ctx, strela_buffer buffer) {
 	// Bumb allocator free does nothing.
 }
 
-void strela_free_all_data(strela_ctx *ctx) {
+void
+strela_buffer_free_all(strela_ctx *ctx) {
 	// Set base pointer to 0
 }
 
-// Pool allocator for kernels.//////////////////////////////////////////////////
-
-void *strela_alloc_kernel(strela_ctx *ctx) {
-	return NULL;
-}
-
-void strela_free_kernel(strela_ctx *ctx) {
-	;
-}
+// TODO: dato un kernel, e dei dati devo generare il controllo.
+// la configurazione dipende dal kernel, quindi deve essere fornita dall'utente
+// io devo solo fornire la funzione per scrivere il controllo, che deve flushare
+// la memoria del kernel usato e dei dati in input...

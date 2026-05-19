@@ -99,21 +99,21 @@ strela_bypass(
     uint32_t len1 = len/4;
     uint32_t len2 = len1 + len%4;
 
-    struct STRELA_control strela_ctrl = {
-        .conf_offs = CONFIG_OFFSET, .conf_count = KRNL_SIZE,
+    struct strela_ctrl ctrl = {
+        .conf_offset = CONFIG_OFFSET, .conf_count = KRNL_SIZE,
 
-        .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = STRELA_WORD_SIZE,
-        .in1_offs = INPUT_OFFSET + len1*1, .in1_count = len1, .in1_stride = STRELA_WORD_SIZE,
-        .in2_offs = INPUT_OFFSET + len1*2, .in2_count = len1, .in2_stride = STRELA_WORD_SIZE,
-        .in3_offs = INPUT_OFFSET + len1*3, .in3_count = len2, .in3_stride = STRELA_WORD_SIZE,
+        .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = STRELA_WORD_SIZE,
+        .inp1_offset = INPUT_OFFSET + len1*1, .inp1_count = len1, .inp1_stride = STRELA_WORD_SIZE,
+        .inp2_offset = INPUT_OFFSET + len1*2, .inp2_count = len1, .inp2_stride = STRELA_WORD_SIZE,
+        .inp3_offset = INPUT_OFFSET + len1*3, .inp3_count = len2, .inp3_stride = STRELA_WORD_SIZE,
 
-        .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
-        .out1_offs = OUTPUT_OFFSET + len1*1, .out1_count = len1,
-        .out2_offs = OUTPUT_OFFSET + len1*2, .out2_count = len1,
-        .out3_offs = OUTPUT_OFFSET + len1*3, .out3_count = len2,
+        .out0_offset = OUTPUT_OFFSET + len1*0, .out0_count = len1,
+        .out1_offset = OUTPUT_OFFSET + len1*1, .out1_count = len1,
+        .out2_offset = OUTPUT_OFFSET + len1*2, .out2_count = len1,
+        .out3_offset = OUTPUT_OFFSET + len1*3, .out3_count = len2,
     };
 
-    if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &strela_ctrl) == -1) {
+    if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &ctrl) == -1) {
         perror("IOCTL_STRELA_CONTROL");
         return false;
     }
@@ -182,18 +182,18 @@ strela_relu(
     uint32_t len1 = len/2;
     uint32_t len2 = len1 + len%2;
 
-    struct STRELA_control strela_ctrl = {
-        .conf_offs = CONFIG_OFFSET,
+    struct strela_ctrl ctrl = {
+        .conf_offset = CONFIG_OFFSET,
         .conf_count = KRNL_SIZE,
 
-        // .in0_offs = INPUT_OFFSET + len1*0, .in0_count = len1, .in0_stride = STRELA_WORD_SIZE,
-        .in3_offs = INPUT_OFFSET + len1*1, .in3_count = len2, .in3_stride = STRELA_WORD_SIZE,
+        // .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = STRELA_WORD_SIZE,
+        .inp3_offset = INPUT_OFFSET + len1*1, .inp3_count = len2, .inp3_stride = STRELA_WORD_SIZE,
 
-        // .out0_offs = OUTPUT_OFFSET + len1*0, .out0_count = len1,
-        .out3_offs = OUTPUT_OFFSET + len1*1, .out3_count = len2,
+        // .out0_offset = OUTPUT_OFFSET + len1*0, .out0_count = len1,
+        .out3_offset = OUTPUT_OFFSET + len1*1, .out3_count = len2,
     };
 
-    if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &strela_ctrl) == -1) {
+    if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &ctrl) == -1) {
         perror("IOCTL_STRELA_CONTROL");
         return false;
     }

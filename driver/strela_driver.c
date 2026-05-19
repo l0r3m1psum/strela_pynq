@@ -83,7 +83,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 	switch (ioctl_num) {
 		case IOCTL_STRELA_CONTROL: {
-			struct STRELA_control ctrl;
+			struct strela_ctrl ctrl;
 
 			if (copy_from_user(&ctrl, (void __user *)ioctl_param, sizeof ctrl)) {
 				dev_err(priv->logical_dev, "Copy from user failed");
@@ -93,25 +93,25 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 			// NOTE: maybe in this context it is better to use writel_relaxed
 			// and conclude with a writel at the end to flush everything.
-			writel(dma_addr + ctrl.conf_offs,      base_addr + STRELA_REG_CONF_ADDR);
+			writel(dma_addr + ctrl.conf_offset,      base_addr + STRELA_REG_CONF_ADDR);
 			writel(ctrl.conf_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_CONF_SIZE);
 
-			writel(dma_addr + ctrl.in0_offs*STRELA_WORD_SIZE,         base_addr + STRELA_REG_INP0_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.in0_stride, ctrl.in0_count), base_addr + STRELA_REG_INP0_SIZE);
-			writel(dma_addr + ctrl.in1_offs*STRELA_WORD_SIZE,         base_addr + STRELA_REG_INP1_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.in1_stride, ctrl.in1_count), base_addr + STRELA_REG_INP1_SIZE);
-			writel(dma_addr + ctrl.in2_offs*STRELA_WORD_SIZE,         base_addr + STRELA_REG_INP2_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.in2_stride, ctrl.in2_count), base_addr + STRELA_REG_INP2_SIZE);
-			writel(dma_addr + ctrl.in3_offs*STRELA_WORD_SIZE,         base_addr + STRELA_REG_INP3_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.in3_stride, ctrl.in3_count), base_addr + STRELA_REG_INP3_SIZE);
+			writel(dma_addr + ctrl.inp0_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP0_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp0_stride, ctrl.inp0_count), base_addr + STRELA_REG_INP0_SIZE);
+			writel(dma_addr + ctrl.inp1_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP1_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp1_stride, ctrl.inp1_count), base_addr + STRELA_REG_INP1_SIZE);
+			writel(dma_addr + ctrl.inp2_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP2_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp2_stride, ctrl.inp2_count), base_addr + STRELA_REG_INP2_SIZE);
+			writel(dma_addr + ctrl.inp3_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP3_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp3_stride, ctrl.inp3_count), base_addr + STRELA_REG_INP3_SIZE);
 
-			writel(dma_addr + ctrl.out0_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT0_ADDR);
+			writel(dma_addr + ctrl.out0_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT0_ADDR);
 			writel(           ctrl.out0_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT0_SIZE);
-			writel(dma_addr + ctrl.out1_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT1_ADDR);
+			writel(dma_addr + ctrl.out1_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT1_ADDR);
 			writel(           ctrl.out1_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT1_SIZE);
-			writel(dma_addr + ctrl.out2_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT2_ADDR);
+			writel(dma_addr + ctrl.out2_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT2_ADDR);
 			writel(           ctrl.out2_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT2_SIZE);
-			writel(dma_addr + ctrl.out3_offs*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT3_ADDR);
+			writel(dma_addr + ctrl.out3_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT3_ADDR);
 			writel(           ctrl.out3_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT3_SIZE);
 
 			// Maybe unnecessary...
