@@ -227,7 +227,7 @@ static
 int test_device(const char *dev_path) {
 
     strela_ctx ctx = {0};
-    if (strela_ctx_init(&ctx, dev_path) == -1) {
+    if (!strela_ctx_init(&ctx, dev_path)) {
         fprintf(stderr, "Cannot initialize STRELA context\n");
         return 1;
     }

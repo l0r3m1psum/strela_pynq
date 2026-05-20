@@ -73,6 +73,31 @@ strela_release(struct inode *inode, struct file *file) {
 	return 0;
 }
 
+static bool
+strela_check_bounds(u32 offset_words, u32 count_words, u32 stride) {
+	// offset_words*WORD_SIZE + count_words*stride*WORD_SIZE >= DATA_REGION_SIZE
+	u32 offset_bytes = 0;
+	u32 count_bytes = 0;
+	u32 end_bytes = 0;
+
+	if (check_mul_overflow(offset_words, (u32)STRELA_WORD_SIZE, &offset_bytes))
+		return true;
+
+	if (check_mul_overflow(count_words, stride, &count_bytes))
+		return true;
+
+	if (check_mul_overflow(count_bytes, (u32)STRELA_WORD_SIZE, &count_bytes))
+		return true;
+
+	if (check_add_overflow(offset_bytes, count_bytes, &end_bytes))
+		return true;
+
+	if (end_bytes > STRELA_DATA_REGION_SIZE)
+		return true;
+
+	return false;
+}
+
 static long
 strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param) {
 	long ret = 0;
@@ -84,10 +109,31 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 	switch (ioctl_num) {
 		case IOCTL_STRELA_CONTROL: {
 			struct strela_ctrl ctrl;
+			u32 conf_end;
 
 			if (copy_from_user(&ctrl, (void __user *)ioctl_param, sizeof ctrl)) {
 				dev_err(priv->logical_dev, "Copy from user failed");
 				ret = -EFAULT;
+				break;
+			}
+
+			// Confusingly conf_offset is the only field in bytes and not words...
+
+			if (
+				// conf_offset + conf_count*WORD_SIZE > DATA_REGION_SIZE
+				check_mul_overflow(ctrl.conf_count, STRELA_WORD_SIZE, &conf_end)
+				|| check_add_overflow(ctrl.conf_offset, conf_end, &conf_end)
+				|| conf_end > STRELA_DATA_REGION_SIZE
+				|| strela_check_bounds(ctrl.inp0_offset, ctrl.inp0_count, ctrl.inp0_stride)
+				|| strela_check_bounds(ctrl.inp1_offset, ctrl.inp1_count, ctrl.inp1_stride)
+				|| strela_check_bounds(ctrl.inp2_offset, ctrl.inp2_count, ctrl.inp2_stride)
+				|| strela_check_bounds(ctrl.inp3_offset, ctrl.inp3_count, ctrl.inp3_stride)
+				|| strela_check_bounds(ctrl.out0_offset, ctrl.out0_count, 1)
+				|| strela_check_bounds(ctrl.out1_offset, ctrl.out1_count, 1)
+				|| strela_check_bounds(ctrl.out2_offset, ctrl.out2_count, 1)
+				|| strela_check_bounds(ctrl.out3_offset, ctrl.out3_count, 1)
+			) {
+				ret = -EINVAL;
 				break;
 			}
 
@@ -158,6 +204,19 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 	return ret;
 }
 
+static void
+strela_vm_close(struct vm_area_struct *vma) {
+    struct device *physical_dev = vma->vm_private_data;
+
+    dev_info(physical_dev, "Memory is being unmapped");
+}
+
+static struct vm_operations_struct strela_vm_operations = {
+    .close = strela_vm_close,
+    // If fork will ever be supported...
+    // .open = strela_vm_open,
+};
+
 static int
 strela_mmap(struct file *file, struct vm_area_struct *vma) {
 	int ret = 0;
@@ -175,6 +234,11 @@ strela_mmap(struct file *file, struct vm_area_struct *vma) {
 		dev_err(physical_dev, "dma_mmap_pages failed with error: %d", ret);
 	}
 
+	vm_flags_set(vma, VM_DONTCOPY);
+
+	vma->vm_ops = &strela_vm_operations;
+	vma->vm_private_data = physical_dev;
+
 	return ret;
 }
 
@@ -182,6 +246,7 @@ static struct file_operations strela_fops = {
 	.owner          = THIS_MODULE, // https://lwn.net/Articles/31474/#:~:text=drivers%20got%20an-,owner%20field,-which%20points%20to
 	.unlocked_ioctl = strela_ioctl, // https://lwn.net/Articles/119652/
 	.mmap           = strela_mmap,
+	// No munmap https://lwn.net/Articles/1038715/
 	.open           = strela_open,
 	.release        = strela_release,
 };
