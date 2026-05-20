@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include "strela.h"
 #include "strela_ioctl.h"
@@ -73,11 +74,11 @@ strela_ctx_init(unsigned which_strela) {
 	strela_ctx *ctx = NULL;
 
 	if (which_strela >= STRELA_MAX_DEV) {
-		ctx = no_dev_context;
+		ctx = &no_dev_context;
 	}
 
 	if (strela_res_ok(ctx->res)) {
-		ctx = contexes[which_strela];
+		ctx = &contexes[which_strela];
 	}
 
 	ret = snprintf(path_buf, sizeof path_buf, "/dev/strela%d", which_strela);
@@ -130,10 +131,25 @@ strela_ctx_deinit(strela_ctx *ctx) {
 					"munmap(3) can only fail because it was passed bad "
 					"arguments (EINVAL). This is non recoverable programmer "
 					"error because strela_ctx_deinit should never fail.");
-				abort()
+				abort();
 			}
 		}
 	}
+}
+
+bool
+strela_ctx_ok(strela_ctx *ctx) {
+	return strela_res_ok(ctx->res);
+}
+
+void
+strela_ctx_reset_err(strela_ctx *ctx) {
+	ctx->res.errnum = 0;
+}
+
+strela_res
+strela_ctx_get_err(strela_ctx *ctx) {
+	return ctx->res;
 }
 
 // Pool allocator for kernels.//////////////////////////////////////////////////
@@ -145,7 +161,7 @@ strela_kernel_get(strela_ctx *ctx) {
 }
 
 void
-strela_kernel_set(strela_ctx *ctx, strela_kernel kernel, uint32_t data[STRELA_KERNEL_SIZE]) {
+strela_kernel_set(strela_ctx *ctx, strela_kernel kernel, const uint32_t data[STRELA_KERNEL_SIZE]) {
 	// memcpy
 };
 
@@ -154,10 +170,15 @@ strela_kernel_put(strela_ctx *ctx, strela_kernel kernel) {
 	;
 }
 
+void
+strela_kernel_put_all(strela_ctx *ctx) {
+	;
+}
+
 // Bump allocator for data /////////////////////////////////////////////////////
 
 strela_buffer
-strela_buffer_alloc(strela_ctx *ctx, int size) {
+strela_buffer_alloc(strela_ctx *ctx, size_t size) {
 	// Can allocate only multiples of sizeof (strela_word) aligned to sizeof (strela_word)
 	strela_buffer res = {0};
 	return res;

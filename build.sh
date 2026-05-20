@@ -9,5 +9,5 @@ cflags="-Wall -Wextra -g -I include"
 	cd driver
 	./build.sh
 )
-$cc $cflags tools/test_strela.c -o tools/test_strela
 $cc $cflags -I include/uapi -shared lib/strela.c -o lib/libstrela.so
+$cc $cflags tools/test_strela.c -o tools/test_strela -L lib -l strela
