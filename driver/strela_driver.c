@@ -15,6 +15,7 @@
  * https://docs.kernel.org/core-api/kernel-api.html#char-devices
  * https://docs.kernel.org/core-api/idr.html#ida-usage
  * https://docs.kernel.org/userspace-api/ioctl/ioctl-number.html
+ * https://docs.kernel.org/core-api/kernel-api.html#crc-and-math-functions-in-linux
  */
 
 #include <linux/cdev.h>

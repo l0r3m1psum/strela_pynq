@@ -11,21 +11,26 @@
 #include "strela.h"
 #include "strela_ioctl.h"
 
+#include "allocators.c"
+
 #define COUNTOF(x) (sizeof (x) / sizeof *(x))
 
 enum {
 	STRELA_MAX_DEV = 8,
 };
 
-typedef struct strela_kernel_pool strela_kernel_pool;
+// TODO: strela_ctx -> strela_dev
+// TODO: add initialized flag that can be resetted only by closing the device
+// hence all operation on it are noops including error reset.
+// TODO: how can open and mmap fail?
 
 struct strela_ctx {
 	int fd;
 	void *base;
 
 	strela_res res;
-	strela_kernel_pool *kernel_pool;
-	// TODO: bump allocator
+	Pool kernel_pool;
+	Arena buffer_arena;
 };
 
 static strela_ctx contexes[STRELA_MAX_DEV];
@@ -105,10 +110,20 @@ strela_ctx_init(unsigned which_strela) {
 	} else {
 		ctx->fd = fd;
 		ctx->base = base;
+		pool_init(
+			&ctx->kernel_pool,
+			base,
+			4*STRELA_KERNEL_SIZE*128,
+			4*STRELA_KERNEL_SIZE,
+			1 // Kernels can be byte aligned.
+		);
+		arena_init(
+			&ctx->buffer_arena,
+			(unsigned char *) base + 4*STRELA_KERNEL_SIZE*128,
+			STRELA_DATA_REGION_SIZE - 4*STRELA_KERNEL_SIZE*128
+		);
 	}
 
-	// TODO: init kernel memory pool (say 128)
-	// TODO: init data bump allocator
 
 	return ctx;
 }
@@ -125,14 +140,12 @@ strela_ctx_deinit(strela_ctx *ctx) {
 			abort();
 		}
 
-		if (strela_res_ok(ctx->res)) {
-			if (munmap(ctx->base, STRELA_DATA_REGION_SIZE) == -1) {
-				perror(
-					"munmap(3) can only fail because it was passed bad "
-					"arguments (EINVAL). This is non recoverable programmer "
-					"error because strela_ctx_deinit should never fail.");
-				abort();
-			}
+		if (munmap(ctx->base, STRELA_DATA_REGION_SIZE) == -1) {
+			perror(
+				"munmap(3) can only fail because it was passed bad "
+				"arguments (EINVAL). This is non recoverable programmer "
+				"error because strela_ctx_deinit should never fail.");
+			abort();
 		}
 	}
 }
@@ -157,47 +170,91 @@ strela_ctx_get_err(strela_ctx *ctx) {
 strela_kernel
 strela_kernel_get(strela_ctx *ctx) {
 	strela_kernel res = {0};
+	if (strela_ctx_ok(ctx)) {
+		unsigned char *ptr = pool_alloc(&ctx->kernel_pool);
+		if (ptr) {
+			unsigned handle = ((uintptr_t) ptr - (uintptr_t) ctx->kernel_pool.buf)
+				/ ((uintptr_t) STRELA_KERNEL_SIZE * (uintptr_t) 4);
+			res.valid = true;
+			res.handle = handle;
+		}
+	}
 	return res;
 }
 
+// TODO: do an out of band data structure for the pool allocator to be able to
+// check if a handle is allocated or not and return STRELA_ERR_BAD_ARG if it is.
+// struct { bool allocated; uint8_t next_free; } free_list[128];
+
 void
 strela_kernel_set(strela_ctx *ctx, strela_kernel kernel, const uint32_t data[STRELA_KERNEL_SIZE]) {
-	// memcpy
-};
+	if (strela_ctx_ok(ctx)) {
+		if (!kernel.valid || kernel.handle >= 128) {
+			ctx->res.errnum = -STRELA_ERR_BAD_ARG;
+		}
+
+		if (strela_ctx_ok(ctx)) {
+			unsigned char *ptr = ctx->kernel_pool.buf + kernel.handle * STRELA_KERNEL_SIZE * 4;
+			memcpy(ptr, data, STRELA_KERNEL_SIZE * 4);
+		}
+	}
+}
 
 void
 strela_kernel_put(strela_ctx *ctx, strela_kernel kernel) {
-	;
+	if (strela_ctx_ok(ctx)) {
+		if (!kernel.valid || kernel.handle >= 128) {
+			ctx->res.errnum = -STRELA_ERR_BAD_ARG;
+		}
+
+		if (strela_ctx_ok(ctx)) {
+			unsigned char *ptr = ctx->kernel_pool.buf + kernel.handle * STRELA_KERNEL_SIZE * 4;
+			pool_free(&ctx->kernel_pool, ptr);
+		}
+	}
 }
 
 void
 strela_kernel_put_all(strela_ctx *ctx) {
-	;
+	pool_free_all(&ctx->kernel_pool);
 }
 
 // Bump allocator for data /////////////////////////////////////////////////////
 
 strela_buffer
 strela_buffer_alloc(strela_ctx *ctx, size_t size) {
+	// TODO: round up to nearest multiple of sizeof (strela_word)
 	// Can allocate only multiples of sizeof (strela_word) aligned to sizeof (strela_word)
 	strela_buffer res = {0};
+	unsigned char *ptr = arena_alloc_align(&ctx->buffer_arena, size, sizeof (strela_word));
+	if (ptr) {
+		res.valid = true;
+		res.size = size / sizeof (strela_word); // in words
+		res.offset = ((uintptr_t) ptr - (uintptr_t) ctx->buffer_arena.buf)
+			/ (uintptr_t) sizeof (strela_word);
+	}
 	return res;
 }
 
 strela_word *
 strela_buffer_ptr(strela_ctx *ctx, strela_buffer buffer) {
 	if (!buffer.valid) abort();
-	return NULL;
+	return (strela_word *) (ctx->buffer_arena.buf + buffer.offset*sizeof (strela_word));
 }
 
 void
 strela_buffer_free(strela_ctx *ctx, strela_buffer buffer) {
-	// Bumb allocator free does nothing.
+	if (strela_ctx_ok(ctx)) {
+		if (!buffer.valid) abort();
+		// Bump allocator does nothing on free.
+	}
 }
 
 void
 strela_buffer_free_all(strela_ctx *ctx) {
-	// Set base pointer to 0
+	if (strela_ctx_ok(ctx)) {
+		arena_free_all(&ctx->buffer_arena);
+	}
 }
 
 void
@@ -205,7 +262,9 @@ strela_config(strela_ctx *ctx, strela_kernel kernel, strela_conf *conf) {
 
 	if (strela_res_ok(ctx->res)) {
 
-		assert(false && "check that the kernel handle has been allocated and is in the valid range.");
+		if (!kernel.valid || kernel.handle >= 128) {
+			ctx->res.errnum = -STRELA_ERR_BAD_ARG;
+		}
 
 		struct strela_ctrl ctrl = {
 			.conf_offset = kernel.handle * STRELA_KERNEL_SIZE,
