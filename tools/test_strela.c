@@ -82,7 +82,10 @@ test_device(unsigned which) {
     }
 
     // NOTE: strela_buffer and strela_kernel could have a pointer to the context
-    // that created them to make the API cleaner...
+    // that created them to make the API cleaner... This would require getting
+    // the strela_dev * also from non valid buffers and kernels which I do not
+    // know how I feel about because I would need to always initialize the .dev
+    // field.
 
     {
         strela_kernel kernel = strela_kernel_get(dev);

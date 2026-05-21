@@ -37,12 +37,13 @@ strela_device_count(unsigned *count) {
 	char path_buf[] = "/dev/strelaX";
 	int last_char = COUNTOF(path_buf) - 1 - 1;
 	int res = 0;
+	int old_errno = 0;
 
 	// TODO: use snprintf
 	static_assert(STRELA_MAX_DEV < 10, "maximum one decimal digit.");
 	// We need to rest errno to determine if access failed or the file just does
 	// not exists.
-	// TODO: restore errno original value if no error occurs.
+	old_errno = errno;
 	errno = 0;
 
 	for (int i = 0; i < STRELA_MAX_DEV; i++) {
@@ -59,6 +60,8 @@ strela_device_count(unsigned *count) {
 	if (errno != 0) {
 		perror("access");
 		res = -1;
+	} else {
+		errno = old_errno;
 	}
 
 	return res;
