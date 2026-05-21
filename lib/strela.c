@@ -21,7 +21,9 @@ enum {
 
 // TODO: strela_ctx -> strela_dev
 // TODO: add initialized flag that can be resetted only by closing the device
-// hence all operation on it are noops including error reset.
+// hence all operation on it are noops including error reset. This flag should
+// also handle multiple calls of init for the same device by just returning the
+// pointer without doing the initialization (idempotency).
 // TODO: how can open and mmap fail?
 
 struct strela_ctx {
@@ -34,7 +36,6 @@ struct strela_ctx {
 };
 
 static strela_ctx contexes[STRELA_MAX_DEV];
-static strela_ctx no_dev_context = { .res.errnum = STRELA_ERR_NO_DEV, };
 
 static bool strela_res_ok(strela_res res) { return res.errnum == STRELA_ERR_OK; }
 
@@ -74,17 +75,17 @@ strela_device_count(unsigned *count) {
 strela_ctx *
 strela_ctx_init(unsigned which_strela) {
 	char path_buf[128] = {0};
-	int ret = 0, fd = 0;
-	uint32_t *base = NULL;
+	int ret = 0, fd = -1;
+	void *base = NULL;
 	strela_ctx *ctx = NULL;
 
 	if (which_strela >= STRELA_MAX_DEV) {
-		ctx = &no_dev_context;
+		// We consider this an unrecoverable programmer error. Otherwise it
+		// becomes cumbersome to handle this corner case.
+		abort();
 	}
 
-	if (strela_res_ok(ctx->res)) {
-		ctx = &contexes[which_strela];
-	}
+	ctx = &contexes[which_strela];
 
 	ret = snprintf(path_buf, sizeof path_buf, "/dev/strela%d", which_strela);
 	assert(ret >= 0);
@@ -106,7 +107,7 @@ strela_ctx_init(unsigned which_strela) {
 	}
 
 	if (!strela_res_ok(ctx->res)) {
-		close(fd);
+		if (fd != -1) close(fd);
 	} else {
 		ctx->fd = fd;
 		ctx->base = base;
@@ -123,7 +124,6 @@ strela_ctx_init(unsigned which_strela) {
 			STRELA_DATA_REGION_SIZE - 4*STRELA_KERNEL_SIZE*128
 		);
 	}
-
 
 	return ctx;
 }
@@ -175,6 +175,7 @@ strela_kernel_get(strela_ctx *ctx) {
 		if (ptr) {
 			unsigned handle = ((uintptr_t) ptr - (uintptr_t) ctx->kernel_pool.buf)
 				/ ((uintptr_t) STRELA_KERNEL_SIZE * (uintptr_t) 4);
+			assert(handle < 128);
 			res.valid = true;
 			res.handle = handle;
 		}
@@ -216,21 +217,22 @@ strela_kernel_put(strela_ctx *ctx, strela_kernel kernel) {
 
 void
 strela_kernel_put_all(strela_ctx *ctx) {
-	pool_free_all(&ctx->kernel_pool);
+	if (strela_ctx_ok(ctx)) {
+		pool_free_all(&ctx->kernel_pool);
+	}
 }
 
 // Bump allocator for data /////////////////////////////////////////////////////
 
 strela_buffer
-strela_buffer_alloc(strela_ctx *ctx, size_t size) {
-	// TODO: round up to nearest multiple of sizeof (strela_word)
-	// Can allocate only multiples of sizeof (strela_word) aligned to sizeof (strela_word)
+strela_buffer_alloc(strela_ctx *ctx, size_t size_words) {
 	strela_buffer res = {0};
-	unsigned char *ptr = arena_alloc_align(&ctx->buffer_arena, size, sizeof (strela_word));
+	size_t size_bytes = size_words * sizeof (strela_word); // TODO: check for overflow.
+	unsigned char *ptr = arena_alloc_align(&ctx->buffer_arena, size_bytes, sizeof (strela_word));
 	if (ptr) {
 		res.valid = true;
-		res.size = size / sizeof (strela_word); // in words
-		res.offset = ((uintptr_t) ptr - (uintptr_t) ctx->buffer_arena.buf)
+		res.size_words = size_words;
+		res.offset_words_from_base = ((uintptr_t) ptr - (uintptr_t) ctx->base)
 			/ (uintptr_t) sizeof (strela_word);
 	}
 	return res;
@@ -239,7 +241,10 @@ strela_buffer_alloc(strela_ctx *ctx, size_t size) {
 strela_word *
 strela_buffer_ptr(strela_ctx *ctx, strela_buffer buffer) {
 	if (!buffer.valid) abort();
-	return (strela_word *) (ctx->buffer_arena.buf + buffer.offset*sizeof (strela_word));
+	return (strela_word *) (
+		(uintptr_t) ctx->base
+		+ (uintptr_t) (buffer.offset_words_from_base*sizeof (strela_word))
+	);
 }
 
 void

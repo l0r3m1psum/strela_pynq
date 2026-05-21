@@ -45,6 +45,8 @@ strela_ctx_init(strela_ctx *ctx, const char *dev_path) {
 
     ctx->fd = fd;
     ctx->base = base;
+
+    return true;
 }
 
 // TODO: add an argument to decide where to route the data for testing.

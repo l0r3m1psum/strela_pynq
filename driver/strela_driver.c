@@ -346,10 +346,12 @@ static int __init
 strela_driver_init(void) {
 	int ret;
 
+#if 0
 	if (!IS_ENABLED(CONFIG_XILINX_AFI_FPGA)) {
 		pr_warn("The Xilinx AFI bridge driver has not been compiled with the kernel "
 			"you may need to manually configure some AXI FIFO Interface registers.");
 	}
+#endif
 
 	if (!IS_ENABLED(CONFIG_FPGA_MGR_ZYNQ_AFI_FPGA)) {
 		pr_warn("The Pynq AFI bridge driver has not been compiled with the kernel "

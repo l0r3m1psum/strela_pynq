@@ -2,6 +2,7 @@
 
 set -e
 
+# TODO: make distinction between path and name.
 name=$1
 addr=10.100.4.202
 
@@ -14,14 +15,17 @@ FIELD_WrDataThreshold=0xF00 # It was originally there...
 
 scp "${name}.bit.bin" "${name}.dtbo" root@${addr}:/lib/firmware
 scp driver/strela.ko root@${addr}:/root
+scp lib/libstrela.so root@${addr}:/usr/local/lib
+scp tools/test_strela root@${addr}:/root
 scp tools/test_bypass root@${addr}:/root
 
 # Assuming configfs is mounted
 # mount -t configfs none /sys/kernel/config
 ssh root@${addr} << EOF
-	set -x
+	set -ex
 
-	rmmod strela
+	rmmod strela || true
+	ldconfig
 
 	# devmem2 $(printf 0x%x $(($AXI_HP0 + $AFI_RDCHAN_CTRL))) w $FIELD_32BitEn
 	# devmem2 $(printf 0x%x $(($AXI_HP0 + $AFI_WRCHAN_CTRL))) w $(printf 0x%x $(($FIELD_WrDataThreshold | $FIELD_32BitEn)))
@@ -43,4 +47,5 @@ ssh root@${addr} << EOF
 
 	dmesg | tail -n 20
 	./test_bypass
+	./test_strela
 EOF

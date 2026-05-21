@@ -50,8 +50,8 @@ struct strela_kernel {
 typedef struct strela_buffer strela_buffer;
 struct strela_buffer {
 	bool valid;
-	size_t offset; /* Can be used as an offset in strela_conf */
-	size_t size;
+	size_t offset_words_from_base;
+	size_t size_words;
 };
 
 /* STRELA I/O configuration.
