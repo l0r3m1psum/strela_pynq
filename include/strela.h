@@ -22,7 +22,6 @@ typedef int32_t strela_word;
 typedef enum strela_err strela_err;
 enum strela_err {
 	STRELA_ERR_OK,
-	STRELA_ERR_NO_DEV,
 	STRELA_ERR_BAD_ARG,
 };
 
@@ -80,6 +79,7 @@ void        strela_ctx_deinit(strela_ctx *ctx);
 bool        strela_ctx_ok(strela_ctx *ctx);
 void        strela_ctx_reset_err(strela_ctx *ctx);
 strela_res  strela_ctx_get_err(strela_ctx *ctx);
+bool        strela_ctx_initialized(strela_ctx *ctx);
 
 /* STRELA kernels management.
  */

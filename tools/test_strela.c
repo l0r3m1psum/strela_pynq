@@ -64,6 +64,9 @@ test_device(unsigned which) {
     size_t len = 10;
     strela_ctx *ctx = strela_ctx_init(which);
 
+    // The function is idempotent.
+    ctx = strela_ctx_init(which);
+
     // NOTE: strela_buffer and strela_kernel could have a pointer to the context
     // that created them to make the API cleaner...
 
@@ -137,8 +140,6 @@ test_device(unsigned which) {
         strela_kernel_put_all(ctx);
     }
 
-    // TODO: if something goes wrong with deinit what should I do? How can I
-    // reset and try again?
     // TODO: what happens to the library if multiple process use it?
     {
         strela_kernel kernel = strela_kernel_get(ctx);
