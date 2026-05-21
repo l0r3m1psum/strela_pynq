@@ -34,7 +34,7 @@ struct strela_res { int errnum; };
 
 /* STRELA per device context.
  */
-typedef struct strela_ctx strela_ctx;
+typedef struct strela_dev strela_dev;
 
 /* STRELA kernel handle.
  */
@@ -74,36 +74,36 @@ struct strela_conf {
  * count could be returned. If an error occurs errno is set.  */
 int         strela_device_count(unsigned *count);
 
-strela_ctx *strela_ctx_init(unsigned which_strela);
-void        strela_ctx_deinit(strela_ctx *ctx);
-bool        strela_ctx_ok(strela_ctx *ctx);
-void        strela_ctx_reset_err(strela_ctx *ctx);
-strela_res  strela_ctx_get_err(strela_ctx *ctx);
-bool        strela_ctx_initialized(strela_ctx *ctx);
+strela_dev *strela_dev_init(unsigned which_strela);
+void        strela_dev_deinit(strela_dev *dev);
+bool        strela_dev_ok(strela_dev *dev);
+void        strela_dev_reset_err(strela_dev *dev);
+strela_res  strela_dev_get_err(strela_dev *dev);
+bool        strela_dev_initialized(strela_dev *dev);
 
 /* STRELA kernels management.
  */
-strela_kernel strela_kernel_get(strela_ctx *ctx);
-void          strela_kernel_set(strela_ctx *ctx, strela_kernel kernel,
+strela_kernel strela_kernel_get(strela_dev *dev);
+void          strela_kernel_set(strela_dev *dev, strela_kernel kernel,
                                 const uint32_t data[STRELA_KERNEL_SIZE]);
-void          strela_kernel_put(strela_ctx *ctx, strela_kernel kernel);
-void          strela_kernel_put_all(strela_ctx *ctx);
+void          strela_kernel_put(strela_dev *dev, strela_kernel kernel);
+void          strela_kernel_put_all(strela_dev *dev);
 
 /* STRELA input and output data buffers management.
  * A pointer can be obtained to read and write data.
  * TODO: right now it is implemented as a bump allocator but in the future a
  * free list implementation should be used.
  */
-strela_buffer strela_buffer_alloc(strela_ctx *ctx, size_t size);
-strela_word  *strela_buffer_ptr(strela_ctx *ctx, strela_buffer buffer);
-void          strela_buffer_free(strela_ctx *ctx, strela_buffer buffer);
-void          strela_buffer_free_all(strela_ctx *ctx);
+strela_buffer strela_buffer_alloc(strela_dev *dev, size_t size);
+strela_word  *strela_buffer_ptr(strela_dev *dev, strela_buffer buffer);
+void          strela_buffer_free(strela_dev *dev, strela_buffer buffer);
+void          strela_buffer_free_all(strela_dev *dev);
 
 /* The config function configures both the kernel and the I/O configuration.
  * In the future this functionality should be split to allow reuse of the same
  * kernel with different inputs.
  */
-void strela_config(strela_ctx *ctx, strela_kernel kernel, strela_conf *conf);
-void strela_execute(strela_ctx *ctx);
+void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
+void strela_execute(strela_dev *dev);
 
 #endif

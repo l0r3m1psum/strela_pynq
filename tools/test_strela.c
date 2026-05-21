@@ -62,10 +62,10 @@ static bool
 test_device(unsigned which) {
     int errors = 0;
     size_t len = 10;
-    strela_ctx *ctx = strela_ctx_init(which);
+    strela_dev *dev = strela_dev_init(which);
 
     // The function is idempotent.
-    ctx = strela_ctx_init(which);
+    dev = strela_dev_init(which);
 
     // NOTE: strela_buffer and strela_kernel could have a pointer to the context
     // that created them to make the API cleaner...
@@ -73,20 +73,20 @@ test_device(unsigned which) {
     printf("Testing STRELA %d\n", which);
 
     {
-        strela_kernel kernel = strela_kernel_get(ctx);
-        strela_kernel_set(ctx, kernel, bypass_kernel);
-        strela_buffer input = strela_buffer_alloc(ctx, len);
-        strela_buffer output = strela_buffer_alloc(ctx, len);
+        strela_kernel kernel = strela_kernel_get(dev);
+        strela_kernel_set(dev, kernel, bypass_kernel);
+        strela_buffer input = strela_buffer_alloc(dev, len);
+        strela_buffer output = strela_buffer_alloc(dev, len);
         strela_word *output_ref = malloc(sizeof *output_ref * len);
 
-        if (output_ref && strela_ctx_ok(ctx)) {
-            strela_word *input_ptr = strela_buffer_ptr(ctx, input);
-            strela_word *output_ptr = strela_buffer_ptr(ctx, output);
+        if (output_ref && strela_dev_ok(dev)) {
+            strela_word *input_ptr = strela_buffer_ptr(dev, input);
+            strela_word *output_ptr = strela_buffer_ptr(dev, output);
             for (size_t i = 0; i < len; i++) {
                 input_ptr[i] = i;
             }
             memset(output_ptr, 0, sizeof *output_ptr * len);
-            memcpy(output_ref, strela_buffer_ptr(ctx, input), sizeof *output_ref * len);
+            memcpy(output_ref, strela_buffer_ptr(dev, input), sizeof *output_ref * len);
         }
 
         size_t len1 = len/4;
@@ -107,50 +107,50 @@ test_device(unsigned which) {
             .out3_offset = output.offset_words_from_base + len1*3, .out3_count = len2,
         };
 
-        strela_config(ctx, kernel, &conf);
+        strela_config(dev, kernel, &conf);
         // Not necessary to free here but this is the earliest time that it is
         // safe to do.
-        strela_kernel_put(ctx, kernel);
-        strela_execute(ctx);
+        strela_kernel_put(dev, kernel);
+        strela_execute(dev);
         // See above.
-        strela_buffer_free(ctx, input);
+        strela_buffer_free(dev, input);
 
-        if (output_ref && strela_ctx_ok(ctx)) {
+        if (output_ref && strela_dev_ok(dev)) {
             printf("Results of bypass kernel:\n");
-            inspect_mem("input", strela_buffer_ptr(ctx, input), len);
-            inspect_mem("output", strela_buffer_ptr(ctx, output), len);
+            inspect_mem("input", strela_buffer_ptr(dev, input), len);
+            inspect_mem("output", strela_buffer_ptr(dev, output), len);
             inspect_mem("output_ref", output_ref, len);
-            if (memcmp(strela_buffer_ptr(ctx, output), output_ref, sizeof output) != 0) {
+            if (memcmp(strela_buffer_ptr(dev, output), output_ref, sizeof output) != 0) {
                 fprintf(stderr, "bypass made mistakes\n");
                 errors++;
             } else {
                 printf("bypass pass!\n");
             }
         } else {
-            fprintf(stderr, "Could not execute bypass because: %d\n", strela_ctx_get_err(ctx).errnum);
+            fprintf(stderr, "Could not execute bypass because: %d\n", strela_dev_get_err(dev).errnum);
             errors++;
         }
 
-        strela_buffer_free(ctx, output);
+        strela_buffer_free(dev, output);
 
-        strela_ctx_reset_err(ctx);
+        strela_dev_reset_err(dev);
         // This is not necessary but it is something that the library should be
         // capable of doing.
-        strela_buffer_free_all(ctx);
-        strela_kernel_put_all(ctx);
+        strela_buffer_free_all(dev);
+        strela_kernel_put_all(dev);
     }
 
     // TODO: what happens to the library if multiple process use it?
     {
-        strela_kernel kernel = strela_kernel_get(ctx);
-        strela_kernel_set(ctx, kernel, relu_kernel);
-        strela_buffer input = strela_buffer_alloc(ctx, len);
-        strela_buffer output = strela_buffer_alloc(ctx, len);
+        strela_kernel kernel = strela_kernel_get(dev);
+        strela_kernel_set(dev, kernel, relu_kernel);
+        strela_buffer input = strela_buffer_alloc(dev, len);
+        strela_buffer output = strela_buffer_alloc(dev, len);
         strela_word *output_ref = malloc(sizeof *output_ref * len);
 
-        if (output_ref && strela_ctx_ok(ctx)) {
-            strela_word *input_ptr = strela_buffer_ptr(ctx, input);
-            strela_word *output_ptr = strela_buffer_ptr(ctx, output);
+        if (output_ref && strela_dev_ok(dev)) {
+            strela_word *input_ptr = strela_buffer_ptr(dev, input);
+            strela_word *output_ptr = strela_buffer_ptr(dev, output);
             memset(output_ptr, 0, sizeof *output_ptr * len);
             for (size_t i = 0; i < len; i++) {
                 input_ptr[i] = i%2 == 0 ? 1 : -1;
@@ -176,35 +176,35 @@ test_device(unsigned which) {
 #endif
         };
 
-        strela_config(ctx, kernel, &conf);
-        strela_kernel_put(ctx, kernel);
-        strela_execute(ctx);
-        strela_buffer_free(ctx, input);
+        strela_config(dev, kernel, &conf);
+        strela_kernel_put(dev, kernel);
+        strela_execute(dev);
+        strela_buffer_free(dev, input);
 
-        if (output_ref && strela_ctx_ok(ctx)) {
+        if (output_ref && strela_dev_ok(dev)) {
             printf("Results of relu kernel:\n");
-            inspect_mem("input", strela_buffer_ptr(ctx, input), len);
-            inspect_mem("output", strela_buffer_ptr(ctx, output), len);
+            inspect_mem("input", strela_buffer_ptr(dev, input), len);
+            inspect_mem("output", strela_buffer_ptr(dev, output), len);
             inspect_mem("output_ref", output_ref, len);
-            if (memcmp(strela_buffer_ptr(ctx, output), output_ref, sizeof output) != 0) {
+            if (memcmp(strela_buffer_ptr(dev, output), output_ref, sizeof output) != 0) {
                 fprintf(stderr, "relu made mistakes\n");
                 errors++;
             } else {
                 printf("relu pass!\n");
             }
         } else {
-            fprintf(stderr, "Could not execute relu because: %d\n", strela_ctx_get_err(ctx).errnum);
+            fprintf(stderr, "Could not execute relu because: %d\n", strela_dev_get_err(dev).errnum);
             errors++;
         }
 
-        strela_buffer_free(ctx, output);
-        strela_kernel_put(ctx, kernel);
-        strela_ctx_reset_err(ctx);
-        strela_buffer_free_all(ctx);
-        strela_kernel_put_all(ctx);
+        strela_buffer_free(dev, output);
+        strela_kernel_put(dev, kernel);
+        strela_dev_reset_err(dev);
+        strela_buffer_free_all(dev);
+        strela_kernel_put_all(dev);
     }
 
-    strela_ctx_deinit(ctx);
+    strela_dev_deinit(dev);
 
     return errors == 0;
 }
