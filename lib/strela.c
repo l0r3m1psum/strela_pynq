@@ -180,6 +180,8 @@ strela_kernel_get(strela_dev *dev) {
 			assert(handle < 128);
 			res.valid = true;
 			res.handle = handle;
+		} else {
+			dev->res.errnum = -STRELA_ERR_NO_MEM;
 		}
 	}
 	return res;
@@ -236,6 +238,8 @@ strela_buffer_alloc(strela_dev *dev, size_t size_words) {
 				res.size_words = size_words;
 				res.offset_words_from_base = ((uintptr_t) ptr - (uintptr_t) dev->base)
 					/ (uintptr_t) sizeof (strela_word);
+			} else {
+				dev->res.errnum = -STRELA_ERR_NO_MEM;
 			}
 		} else {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;

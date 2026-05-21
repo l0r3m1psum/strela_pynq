@@ -23,6 +23,7 @@ typedef enum strela_err strela_err;
 enum strela_err {
 	STRELA_ERR_OK,
 	STRELA_ERR_BAD_ARG,
+	STRELA_ERR_NO_MEM,
 };
 
 /* STRELA result type.

@@ -48,4 +48,5 @@ ssh root@${addr} << EOF
 	dmesg | tail -n 20
 	./test_bypass
 	./test_strela
+	dmesg | tail -n 20
 EOF

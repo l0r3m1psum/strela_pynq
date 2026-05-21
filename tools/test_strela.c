@@ -67,10 +67,22 @@ test_device(unsigned which) {
     // The function is idempotent.
     dev = strela_dev_init(which);
 
+    printf("Testing STRELA %d\n", which);
+
+    if (strela_dev_ok(dev)) {
+        for (int i = 0; i < 1000; i++) {
+            strela_kernel kernel = strela_kernel_get(dev);
+            strela_buffer input = strela_buffer_alloc(dev, 1000);
+        }
+        if (strela_dev_get_err(dev).errnum != -STRELA_ERR_NO_MEM) {
+            fprintf(stderr, "This test should have exhausted memory\n");
+        }
+        strela_dev_deinit(dev);
+        dev = strela_dev_init(which);
+    }
+
     // NOTE: strela_buffer and strela_kernel could have a pointer to the context
     // that created them to make the API cleaner...
-
-    printf("Testing STRELA %d\n", which);
 
     {
         strela_kernel kernel = strela_kernel_get(dev);
@@ -111,8 +123,11 @@ test_device(unsigned which) {
         // Not necessary to free here but this is the earliest time that it is
         // safe to do.
         strela_kernel_put(dev, kernel);
+        // There is no problem executing multiple times with the same configuration.
         strela_execute(dev);
-        // See above.
+        strela_execute(dev);
+        // Not necessary to free here but this is the earliest time that it is
+        // safe to do.
         strela_buffer_free(dev, input);
 
         if (output_ref && strela_dev_ok(dev)) {
@@ -211,6 +226,9 @@ test_device(unsigned which) {
 
 int main(void) {
     bool ok = 0;
+    unsigned count = 0;
+    strela_device_count(&count);
+    printf("STRELA device count: %d\n", count);
     ok |= test_device(0);
     ok |= test_device(1);
     // Purposefully testing with an nonexistent device.
