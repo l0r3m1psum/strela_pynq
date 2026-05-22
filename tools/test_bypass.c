@@ -150,7 +150,7 @@ strela_relu(
         0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
         0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
         0x00004083, 0x20CC0300, 0x000000A0, 0x00000000, 0x00000000, // 4
-        0x00000241, 0x020C0300, 0x0000009A, 0x00000000, 0x00000000, // 0
+        0x00000241, 0x020C0300, 0x00000099, 0x00000000, 0x00000000, // 0
 
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
@@ -159,13 +159,13 @@ strela_relu(
 
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 14
         0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 10
-        0x00000041, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
-        0x00000802, 0x00000100, 0x00000000, 0x00000000, 0x00000000, // 2
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 2
 
-        0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
-        0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
-        0x04000089, 0x21CC0300, 0x000000A0, 0x00000000, 0x00000000, // 7
-        0x00000211, 0x020C0300, 0x00000098, 0x00000000, 0x00000000, // 3
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
     };
 
     if (len > MEGABYTE/STRELA_WORD_SIZE) {
@@ -188,11 +188,11 @@ strela_relu(
         .conf_offset = CONFIG_OFFSET,
         .conf_count = KRNL_SIZE,
 
-        // .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = STRELA_WORD_SIZE,
-        .inp3_offset = INPUT_OFFSET + len1*1, .inp3_count = len2, .inp3_stride = STRELA_WORD_SIZE,
+        .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = STRELA_WORD_SIZE,
+        // .inp3_offset = INPUT_OFFSET + len1*1, .inp3_count = len2, .inp3_stride = STRELA_WORD_SIZE,
 
-        // .out0_offset = OUTPUT_OFFSET + len1*0, .out0_count = len1,
-        .out3_offset = OUTPUT_OFFSET + len1*1, .out3_count = len2,
+        .out0_offset = OUTPUT_OFFSET + len1*0, .out0_count = len1,
+        // .out3_offset = OUTPUT_OFFSET + len1*1, .out3_count = len2,
     };
 
     if (ioctl(ctx->fd, IOCTL_STRELA_CONTROL, &ctrl) == -1) {

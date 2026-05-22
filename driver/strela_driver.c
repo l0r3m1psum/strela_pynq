@@ -169,7 +169,6 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			// FLUSH_D_CACHE();
 			dma_sync_single_for_device(physical_dev, dma_addr, STRELA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
 
-			writel(STRELA_CMD_CLEAR_STATE,  base_addr + STRELA_REG_CTRL);
 			writel(STRELA_CMD_CLEAR_CONFIG, base_addr + STRELA_REG_CTRL);
 			writel(1,                       base_addr + STRELA_REG_RESET_DMA);
 
@@ -180,6 +179,10 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 				base_addr + STRELA_REG_CTRL,
 				val, (val & STRELA_CMD_DONE_CONFIG), 10, 5000
 			);
+
+			// The CGRA is configured over the data lines hence we need to clear
+			// them before starting with the execution.
+			writel(STRELA_CMD_CLEAR_STATE,  base_addr + STRELA_REG_CTRL);
 			break;
 		}
 		case IOCTL_STRELA_EXEC: {

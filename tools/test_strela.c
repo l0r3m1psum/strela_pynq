@@ -30,7 +30,7 @@ static const uint32_t relu_kernel[STRELA_KERNEL_SIZE] = {
     0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
     0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
     0x00004083, 0x20CC0300, 0x000000A0, 0x00000000, 0x00000000, // 4
-    0x00000241, 0x020C0300, 0x0000009A, 0x00000000, 0x00000000, // 0
+    0x00000241, 0x020C0300, 0x00000099, 0x00000000, 0x00000000, // 0
 
     0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
     0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
@@ -39,13 +39,13 @@ static const uint32_t relu_kernel[STRELA_KERNEL_SIZE] = {
 
     0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 14
     0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 10
-    0x00000041, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
-    0x00000802, 0x00000100, 0x00000000, 0x00000000, 0x00000000, // 2
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 2
 
-    0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
-    0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
-    0x04000089, 0x21CC0300, 0x000000A0, 0x00000000, 0x00000000, // 7
-    0x00000211, 0x020C0300, 0x00000098, 0x00000000, 0x00000000, // 3
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
 };
 
 static void
@@ -176,8 +176,6 @@ test_device(unsigned which) {
             }
         }
 
-        fprintf(stderr, "WARNING: we route everything through one column "
-            "because STRELA has some problems...\n");
         size_t len1 = len/2;
         size_t len2 = len1 + len%2;
 
@@ -189,8 +187,8 @@ test_device(unsigned which) {
             .out0_offset = output.offset_words_from_base + len1*0, .out0_count = len1,
             .out3_offset = output.offset_words_from_base + len1*1, .out3_count = len2,
 #else
-            .inp3_offset = input.offset_words_from_base, .inp3_count = len, .inp3_stride = sizeof (strela_word),
-            .out3_offset = output.offset_words_from_base, .out3_count = len,
+            .inp0_offset = input.offset_words_from_base, .inp0_count = len, .inp0_stride = sizeof (strela_word),
+            .out0_offset = output.offset_words_from_base, .out0_count = len,
 #endif
         };
 
@@ -228,7 +226,7 @@ test_device(unsigned which) {
 }
 
 int main(void) {
-    bool ok = 0;
+    bool ok = false;
     unsigned count = 0;
     strela_device_count(&count);
     printf("STRELA device count: %d\n", count);
