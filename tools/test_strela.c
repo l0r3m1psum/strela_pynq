@@ -138,7 +138,7 @@ test_device(unsigned which) {
             inspect_mem("input", strela_buffer_ptr(dev, input), len);
             inspect_mem("output", strela_buffer_ptr(dev, output), len);
             inspect_mem("output_ref", output_ref, len);
-            if (memcmp(strela_buffer_ptr(dev, output), output_ref, sizeof output) != 0) {
+            if (memcmp(strela_buffer_ptr(dev, output), output_ref, sizeof (strela_word) * len) != 0) {
                 fprintf(stderr, "bypass made mistakes\n");
                 errors++;
             } else {
@@ -162,47 +162,47 @@ test_device(unsigned which) {
     {
         strela_kernel kernel = strela_kernel_get(dev);
         strela_kernel_set(dev, kernel, relu_kernel);
-        strela_buffer input = strela_buffer_alloc(dev, len);
-        strela_buffer output = strela_buffer_alloc(dev, len);
+        // STRELA can do in-place updates.
+        strela_buffer input_output = strela_buffer_alloc(dev, len);
         strela_word *output_ref = malloc(sizeof *output_ref * len);
 
         if (output_ref && strela_dev_ok(dev)) {
-            strela_word *input_ptr = strela_buffer_ptr(dev, input);
-            strela_word *output_ptr = strela_buffer_ptr(dev, output);
-            memset(output_ptr, 0, sizeof *output_ptr * len);
+            strela_word *input_output_ptr = strela_buffer_ptr(dev, input_output);
             for (size_t i = 0; i < len; i++) {
-                input_ptr[i] = i%2 == 0 ? 1 : -1;
-                output_ref[i] = max(0, input_ptr[i]);
+                input_output_ptr[i] = i%2 == 0 ? 1 : -1;
+                output_ref[i] = max(0, input_output_ptr[i]);
             }
+            printf("Before relu kernel:\n");
+            inspect_mem("input_output", strela_buffer_ptr(dev, input_output), len);
+            inspect_mem("output_ref", output_ref, len);
         }
+
 
         size_t len1 = len/2;
         size_t len2 = len1 + len%2;
 
         strela_conf conf = {
 #if 0
-            .inp0_offset = input.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = sizeof (strela_word),
-            .inp3_offset = input.offset_words_from_base + len1*1, .inp3_count = len2, .inp3_stride = sizeof (strela_word),
+            .inp0_offset = input_output.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = sizeof (strela_word),
+            .inp3_offset = input_output.offset_words_from_base + len1*1, .inp3_count = len2, .inp3_stride = sizeof (strela_word),
 
-            .out0_offset = output.offset_words_from_base + len1*0, .out0_count = len1,
-            .out3_offset = output.offset_words_from_base + len1*1, .out3_count = len2,
+            .out0_offset = input_output.offset_words_from_base + len1*0, .out0_count = len1,
+            .out3_offset = input_output.offset_words_from_base + len1*1, .out3_count = len2,
 #else
-            .inp0_offset = input.offset_words_from_base, .inp0_count = len, .inp0_stride = sizeof (strela_word),
-            .out0_offset = output.offset_words_from_base, .out0_count = len,
+            .inp0_offset = input_output.offset_words_from_base, .inp0_count = len, .inp0_stride = sizeof (strela_word),
+            .out0_offset = input_output.offset_words_from_base, .out0_count = len,
 #endif
         };
 
         strela_config(dev, kernel, &conf);
         strela_kernel_put(dev, kernel);
         strela_execute(dev);
-        strela_buffer_free(dev, input);
 
         if (output_ref && strela_dev_ok(dev)) {
             printf("Results of relu kernel:\n");
-            inspect_mem("input", strela_buffer_ptr(dev, input), len);
-            inspect_mem("output", strela_buffer_ptr(dev, output), len);
+            inspect_mem("input_output", strela_buffer_ptr(dev, input_output), len);
             inspect_mem("output_ref", output_ref, len);
-            if (memcmp(strela_buffer_ptr(dev, output), output_ref, sizeof output) != 0) {
+            if (memcmp(strela_buffer_ptr(dev, input_output), output_ref, sizeof (strela_word) * len) != 0) {
                 fprintf(stderr, "relu made mistakes\n");
                 errors++;
             } else {
@@ -213,7 +213,7 @@ test_device(unsigned which) {
             errors++;
         }
 
-        strela_buffer_free(dev, output);
+        strela_buffer_free(dev, input_output);
         strela_kernel_put(dev, kernel);
         strela_dev_reset_err(dev);
         strela_buffer_free_all(dev);
