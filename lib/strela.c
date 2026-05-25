@@ -15,10 +15,6 @@
 
 #define COUNTOF(x) (sizeof (x) / sizeof *(x))
 
-enum {
-	STRELA_MAX_DEV = 8,
-};
-
 struct strela_dev {
 	int fd;
 	void *base;
@@ -29,7 +25,7 @@ struct strela_dev {
 	Arena buffer_arena;
 };
 
-static strela_dev devices[STRELA_MAX_DEV];
+static strela_dev devices[STRELA_MAX_NUM];
 
 int
 strela_device_count(unsigned *count) {
@@ -40,13 +36,13 @@ strela_device_count(unsigned *count) {
 	int old_errno = 0;
 
 	// TODO: use snprintf
-	static_assert(STRELA_MAX_DEV < 10, "maximum one decimal digit.");
+	static_assert(STRELA_MAX_NUM < 10, "maximum one decimal digit.");
 	// We need to rest errno to determine if access failed or the file just does
 	// not exists.
 	old_errno = errno;
 	errno = 0;
 
-	for (int i = 0; i < STRELA_MAX_DEV; i++) {
+	for (int i = 0; i < STRELA_MAX_NUM; i++) {
 		path_buf[last_char] = '0' + i;
 		if (access(path_buf, F_OK) == -1) {
 			break;
@@ -79,7 +75,7 @@ strela_dev_init(unsigned which_strela) {
 	void *base = NULL;
 	strela_dev *dev = NULL;
 
-	if (which_strela >= STRELA_MAX_DEV) {
+	if (which_strela >= STRELA_MAX_NUM) {
 		// We consider this an unrecoverable programmer error. Otherwise it
 		// becomes cumbersome to handle this corner case.
 		abort();

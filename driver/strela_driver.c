@@ -10,20 +10,26 @@
  * The DMA API is documented here
  * https://docs.kernel.org/core-api/dma-api.html
  *
+ * Bit manipulation stuff
+ * https://docs.kernel.org/core-api/kernel-api.html#basic-kernel-library-functions
+ *
  * https://docs.kernel.org/driver-api/infrastructure.html#c.device
  * https://docs.kernel.org/driver-api/infrastructure.html#c.class
  * https://docs.kernel.org/core-api/kernel-api.html#char-devices
  * https://docs.kernel.org/core-api/idr.html#ida-usage
  * https://docs.kernel.org/userspace-api/ioctl/ioctl-number.html
  * https://docs.kernel.org/core-api/kernel-api.html#crc-and-math-functions-in-linux
+ * https://docs.kernel.org/scheduler/completion.html
  */
 
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
+#include <linux/irq.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -48,21 +54,30 @@ MODULE_DEVICE_TABLE(of, dev_ids);
 static struct class *strela_class;
 static dev_t strela_base_dev_num; // Only the major number
 static DEFINE_IDA(strela_ida);
-#define MAX_STRELA_NUM 4
 
 struct strela_data {
 	void __iomem *base_addr;
 	dma_addr_t dma_addr;
 	struct page *dma_page;
+	unsigned long in_use;
 
 	dev_t dev_num; // major + minor
 	struct cdev cdev;
 	struct device *logical_dev;
+
+	// NOTE: can I get away with only using one?
+	struct completion conf_done;
+	struct completion exec_done;
 };
 
 static int
 strela_open(struct inode *inode, struct file *file) {
 	struct strela_data *priv = container_of(inode->i_cdev, struct strela_data, cdev);
+
+	if (test_and_set_bit(0, &priv->in_use)) {
+		dev_warn(priv->logical_dev, "Device is already open\n");
+		return -EBUSY;
+	}
 
 	file->private_data = priv;
 
@@ -71,6 +86,10 @@ strela_open(struct inode *inode, struct file *file) {
 
 static int
 strela_release(struct inode *inode, struct file *file) {
+	struct strela_data *priv = file->private_data;
+
+	clear_bit(0, &priv->in_use);
+
 	return 0;
 }
 
@@ -107,6 +126,8 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 	void __iomem *base_addr = priv->base_addr;
 	dma_addr_t dma_addr = priv->dma_addr;
 
+	// NOTE: is there any case in which I should reinit_completion?
+
 	switch (ioctl_num) {
 		case IOCTL_STRELA_CONTROL: {
 			struct strela_ctrl ctrl;
@@ -119,6 +140,7 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			}
 
 			// Confusingly conf_offset is the only field in bytes and not words...
+			// FIXME: conf_offset should also be word aligned!!!
 
 			if (
 				// conf_offset + conf_count*WORD_SIZE > DATA_REGION_SIZE
@@ -174,11 +196,14 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 			writel(STRELA_CMD_LOAD_CONFIG, base_addr + STRELA_REG_CTRL);
 
-			u32 val = 0;
-			ret = readl_poll_timeout(
-				base_addr + STRELA_REG_CTRL,
-				val, (val & STRELA_CMD_DONE_CONFIG), 10, 5000
-			);
+			ret = wait_for_completion_interruptible_timeout(&priv->conf_done, usecs_to_jiffies(5000));
+			if (ret == 0) {
+				ret = -ETIMEDOUT;
+			} else if (ret == -ERESTARTSYS) {
+				ret = -ERESTARTSYS;
+			} else {
+				ret = 0;
+			}
 
 			// The CGRA is configured over the data lines hence we need to clear
 			// them before starting with the execution.
@@ -190,11 +215,15 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			dma_sync_single_for_device(physical_dev, dma_addr, STRELA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_TO_DEVICE);
 			writel(STRELA_CMD_START_EXEC, base_addr + STRELA_REG_CTRL);
 
-			u32 val = 0;
-			ret = readl_poll_timeout(
-				base_addr + STRELA_REG_CTRL,
-				val, (val & STRELA_CMD_DONE_EXEC), 10, 500000
-			);
+			ret = wait_for_completion_interruptible_timeout(&priv->exec_done, usecs_to_jiffies(500000));
+			if (ret == 0) {
+				ret = -ETIMEDOUT;
+			} else if (ret == -ERESTARTSYS) {
+				ret = -ERESTARTSYS;
+			} else {
+				ret = 0;
+			}
+
 			// INVAL_D_CACHE();
 			dma_sync_single_for_cpu(physical_dev, dma_addr, STRELA_DATA_REGION_SIZE, DMA_BIDIRECTIONAL); // DMA_FROM_DEVICE);
 			break;
@@ -210,17 +239,23 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 static void
 strela_vm_close(struct vm_area_struct *vma) {
-    struct device *physical_dev = vma->vm_private_data;
+	struct device *physical_dev = vma->vm_private_data;
 
-    dev_info(physical_dev, "Memory is being unmapped");
+	dev_info(physical_dev, "Memory is being unmapped");
 }
 
 static struct vm_operations_struct strela_vm_operations = {
-    .close = strela_vm_close,
-    // If fork will ever be supported...
-    // .open = strela_vm_open,
+	.close = strela_vm_close,
+	// If fork will ever be supported...
+	// .open = strela_vm_open,
 };
 
+// There are solutions for contiguous memory allocation from user space (e.g.
+// mmap(MAP_CONTIG)) which paired with dma_map_single for kernels (which are
+// never going to be bigger that a 4KiB page) could free the driver from
+// handling mmap.
+// https://blog.linuxplumbersconf.org/2017/ocw/system/presentations/4669/original/Support%20user%20space%20POSIX%20conformant%20contiguous__v1.00.pdf
+// https://lwn.net/Articles/753167/
 static int
 strela_mmap(struct file *file, struct vm_area_struct *vma) {
 	int ret = 0;
@@ -255,15 +290,47 @@ static struct file_operations strela_fops = {
 	.release        = strela_release,
 };
 
+static irqreturn_t
+strela_irq_handler(int irq, void *data) {
+	struct strela_data *priv = data;
+	u32 status = readl(priv->base_addr + STRELA_REG_CTRL);
+
+	if (status & (STRELA_CMD_PENDING_INT_EXEC | STRELA_CMD_PENDING_INT_CONFIG))
+		return IRQ_WAKE_THREAD;
+
+	return IRQ_NONE;
+}
+
+static irqreturn_t
+strela_irq_thread_fn(int irq, void *data) {
+	struct strela_data *priv = data;
+	u32 status = readl(priv->base_addr + STRELA_REG_CTRL);
+
+	if (status & STRELA_CMD_PENDING_INT_CONFIG) {
+		writel(STRELA_CMD_CLEAR_INT_CONFIG, priv->base_addr + STRELA_REG_CTRL);
+		complete(&priv->conf_done);
+		return IRQ_HANDLED;
+	} else if (status & STRELA_CMD_PENDING_INT_EXEC) {
+		writel(STRELA_CMD_CLEAR_INT_EXEC, priv->base_addr + STRELA_REG_CTRL);
+		complete(&priv->exec_done);
+		return IRQ_HANDLED;
+	}
+
+	return IRQ_NONE;
+}
+
 static int strela_probe(struct platform_device *pdev) {
 	struct device *physical_dev = &pdev->dev;
 	struct strela_data *priv;
-	int minor, ret;
+	int minor, ret, irq;
 
 	priv = devm_kzalloc(physical_dev, sizeof(*priv), GFP_KERNEL);
 	if (!priv) return -ENOMEM;
 
 	platform_set_drvdata(pdev, priv);
+
+	init_completion(&priv->exec_done);
+	init_completion(&priv->conf_done);
 
 	priv->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base_addr)) {
@@ -288,6 +355,21 @@ static int strela_probe(struct platform_device *pdev) {
 	if (!priv->dma_page) {
 		dev_err(physical_dev, "Unable to allocate DMA region");
 		return -ENOMEM;
+	}
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0) {
+		dev_err(physical_dev, "Unable to get IRQ\n");
+		return irq;
+	}
+
+	ret = devm_request_threaded_irq(
+		physical_dev, irq, strela_irq_handler, strela_irq_thread_fn,
+		IRQF_ONESHOT | IRQF_SHARED, dev_name(physical_dev), priv
+	);
+	if (ret < 0) {
+		dev_err(physical_dev, "Failed to request IRQ %d\n", irq);
+		return ret;
 	}
 
 	// grep strela /proc/devices see dynamically allocated major number

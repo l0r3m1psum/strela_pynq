@@ -73,6 +73,8 @@ test_device(unsigned which) {
         for (int i = 0; i < 1000; i++) {
             strela_kernel kernel = strela_kernel_get(dev);
             strela_buffer input = strela_buffer_alloc(dev, 1000);
+            (void) kernel;
+            (void) input;
         }
         if (strela_dev_get_err(dev).errnum != -STRELA_ERR_NO_MEM) {
             fprintf(stderr, "This test should have exhausted memory\n");
