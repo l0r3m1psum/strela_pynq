@@ -286,7 +286,7 @@ strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 		}
 
 		struct strela_ctrl ctrl = {
-			.conf_offset = kernel.handle * STRELA_KERNEL_SIZE * 4,
+			.conf_offset = kernel.handle * STRELA_KERNEL_SIZE,
 			.conf_count = STRELA_KERNEL_SIZE,
 
 			.inp0_offset = conf->inp0_offset,

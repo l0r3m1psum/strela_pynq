@@ -31,7 +31,7 @@ struct strela_ctrl {
     __u32 out3_count;
 };
 
-#define MAX_STRELA_NUM 4
+#define STRELA_MAX_NUM 4
 
 #define STRELA_WORD_SIZE 4
 #define STRELA_DATA_REGION_SIZE (0x100000 * 4) // 4 MB

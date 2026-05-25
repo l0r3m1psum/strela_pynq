@@ -139,14 +139,14 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 				break;
 			}
 
-			// Confusingly conf_offset is the only field in bytes and not words...
-			// FIXME: conf_offset should also be word aligned!!!
+			// Probably in the future STRELA will have 32-bit configuration
+			// words and 8-bit data words.
+
+			// TODO: all this calculations should be done in user-space here
+			// only alignment should be checked.
 
 			if (
-				// conf_offset + conf_count*WORD_SIZE > DATA_REGION_SIZE
-				check_mul_overflow(ctrl.conf_count, STRELA_WORD_SIZE, &conf_end)
-				|| check_add_overflow(ctrl.conf_offset, conf_end, &conf_end)
-				|| conf_end > STRELA_DATA_REGION_SIZE
+				strela_check_bounds(ctrl.conf_offset, ctrl.conf_count, 1)
 				|| strela_check_bounds(ctrl.inp0_offset, ctrl.inp0_count, ctrl.inp0_stride)
 				|| strela_check_bounds(ctrl.inp1_offset, ctrl.inp1_count, ctrl.inp1_stride)
 				|| strela_check_bounds(ctrl.inp2_offset, ctrl.inp2_count, ctrl.inp2_stride)
@@ -162,8 +162,8 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 
 			// NOTE: maybe in this context it is better to use writel_relaxed
 			// and conclude with a writel at the end to flush everything.
-			writel(dma_addr + ctrl.conf_offset,      base_addr + STRELA_REG_CONF_ADDR);
-			writel(ctrl.conf_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_CONF_SIZE);
+			writel(dma_addr + ctrl.conf_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_CONF_ADDR);
+			writel(ctrl.conf_count*STRELA_WORD_SIZE,             base_addr + STRELA_REG_CONF_SIZE);
 
 			writel(dma_addr + ctrl.inp0_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP0_ADDR);
 			writel(STRELA_MKINPSIZE(ctrl.inp0_stride, ctrl.inp0_count), base_addr + STRELA_REG_INP0_SIZE);
@@ -174,14 +174,14 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			writel(dma_addr + ctrl.inp3_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP3_ADDR);
 			writel(STRELA_MKINPSIZE(ctrl.inp3_stride, ctrl.inp3_count), base_addr + STRELA_REG_INP3_SIZE);
 
-			writel(dma_addr + ctrl.out0_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT0_ADDR);
-			writel(           ctrl.out0_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT0_SIZE);
-			writel(dma_addr + ctrl.out1_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT1_ADDR);
-			writel(           ctrl.out1_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT1_SIZE);
-			writel(dma_addr + ctrl.out2_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT2_ADDR);
-			writel(           ctrl.out2_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT2_SIZE);
-			writel(dma_addr + ctrl.out3_offset*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT3_ADDR);
-			writel(           ctrl.out3_count*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT3_SIZE);
+			writel(dma_addr + ctrl.out0_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT0_ADDR);
+			writel(           ctrl.out0_count*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT0_SIZE);
+			writel(dma_addr + ctrl.out1_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT1_ADDR);
+			writel(           ctrl.out1_count*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT1_SIZE);
+			writel(dma_addr + ctrl.out2_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT2_ADDR);
+			writel(           ctrl.out2_count*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT2_SIZE);
+			writel(dma_addr + ctrl.out3_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT3_ADDR);
+			writel(           ctrl.out3_count*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT3_SIZE);
 
 			// Maybe unnecessary...
 			writel(1, base_addr + STRELA_REG_OUT_ARB_HOLD);
@@ -373,7 +373,7 @@ static int strela_probe(struct platform_device *pdev) {
 	}
 
 	// grep strela /proc/devices see dynamically allocated major number
-	minor = ida_alloc_max(&strela_ida, MAX_STRELA_NUM - 1, GFP_KERNEL);
+	minor = ida_alloc_max(&strela_ida, STRELA_MAX_NUM - 1, GFP_KERNEL);
 	if (minor < 0) {
 		dev_err(physical_dev, "No minor numbers available\n");
 		ret = minor;
@@ -443,7 +443,7 @@ strela_driver_init(void) {
 			"you may need to manually configure some AXI FIFO Interface registers.");
 	}
 
-	ret = alloc_chrdev_region(&strela_base_dev_num, 0, MAX_STRELA_NUM, "strela");
+	ret = alloc_chrdev_region(&strela_base_dev_num, 0, STRELA_MAX_NUM, "strela");
 	if (ret < 0) {
 		pr_err("STRELA: Failed to allocate chrdev region\n");
 		return ret;
@@ -469,7 +469,7 @@ strela_driver_init(void) {
 destroy_class:
 	class_destroy(strela_class);
 unregister_chrdev:
-	unregister_chrdev_region(strela_base_dev_num, MAX_STRELA_NUM);
+	unregister_chrdev_region(strela_base_dev_num, STRELA_MAX_NUM);
 	return ret;
 }
 
@@ -477,7 +477,7 @@ static void __exit
 strela_driver_exit(void) {
 	platform_driver_unregister(&dev_driver);
 	class_destroy(strela_class);
-	unregister_chrdev_region(strela_base_dev_num, MAX_STRELA_NUM);
+	unregister_chrdev_region(strela_base_dev_num, STRELA_MAX_NUM);
 	pr_info("STRELA: Global driver removed\n");
 }
 
