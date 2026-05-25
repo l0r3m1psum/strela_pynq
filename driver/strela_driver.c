@@ -65,6 +65,7 @@ struct strela_data {
 	struct cdev cdev;
 	struct device *logical_dev;
 
+	u32 irq_status;
 	// NOTE: can I get away with only using one?
 	struct completion conf_done;
 	struct completion exec_done;
@@ -295,23 +296,29 @@ strela_irq_handler(int irq, void *data) {
 	struct strela_data *priv = data;
 	u32 status = readl(priv->base_addr + STRELA_REG_CTRL);
 
-	if (status & (STRELA_CMD_PENDING_INT_EXEC | STRELA_CMD_PENDING_INT_CONFIG))
+	if (status & STRELA_CMD_PENDING_INT_CONFIG) {
+		writel(STRELA_CMD_CLEAR_INT_CONFIG, priv->base_addr + STRELA_REG_CTRL);
+		priv->irq_status = status;
 		return IRQ_WAKE_THREAD;
-
+	} else if (status & STRELA_CMD_PENDING_INT_EXEC) {
+		writel(STRELA_CMD_CLEAR_INT_EXEC, priv->base_addr + STRELA_REG_CTRL);
+		priv->irq_status = status;
+		return IRQ_WAKE_THREAD;
+	}
 	return IRQ_NONE;
 }
 
 static irqreturn_t
 strela_irq_thread_fn(int irq, void *data) {
 	struct strela_data *priv = data;
-	u32 status = readl(priv->base_addr + STRELA_REG_CTRL);
+	// u32 status = readl(priv->base_addr + STRELA_REG_CTRL);
 
-	if (status & STRELA_CMD_PENDING_INT_CONFIG) {
-		writel(STRELA_CMD_CLEAR_INT_CONFIG, priv->base_addr + STRELA_REG_CTRL);
+	if (priv->irq_status & STRELA_CMD_PENDING_INT_CONFIG) {
+		priv->irq_status = 0;
 		complete(&priv->conf_done);
 		return IRQ_HANDLED;
-	} else if (status & STRELA_CMD_PENDING_INT_EXEC) {
-		writel(STRELA_CMD_CLEAR_INT_EXEC, priv->base_addr + STRELA_REG_CTRL);
+	} else if (priv->irq_status & STRELA_CMD_PENDING_INT_EXEC) {
+		priv->irq_status = 0;
 		complete(&priv->exec_done);
 		return IRQ_HANDLED;
 	}
@@ -329,8 +336,8 @@ static int strela_probe(struct platform_device *pdev) {
 
 	platform_set_drvdata(pdev, priv);
 
-	init_completion(&priv->exec_done);
 	init_completion(&priv->conf_done);
+	init_completion(&priv->exec_done);
 
 	priv->base_addr = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(priv->base_addr)) {
