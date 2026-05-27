@@ -33,6 +33,13 @@ sudo apt install x11-utils unzip
 sudo locale-gen en_US.UTF-8
 # Dependencies for building the kernel module.
 sudo apt install build-essential flex bison gcc-13-arm-linux-gnueabihf bc device-tree-compiler
+# Additional dependencies to build TVM
+sudo apt install cmake g++-13-arm-linux-gnueabihf python3-venv
+# For TVM-FFI
+mkdir -p ~/arm-sysroot
+cd ~/arm-sysroot
+wget "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/python3.12/libpython3.12-dev_3.12.3-1ubuntu0.13_armhf.deb"
+dpkg -x libpython3.12-dev_3.12.3-1ubuntu0.13_armhf.deb .
 ```
 
 ```
