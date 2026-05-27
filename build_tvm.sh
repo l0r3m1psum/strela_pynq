@@ -3,6 +3,7 @@
 set -e
 
 addr="10.100.4.202"
+strela_include="$PWD/include"
 
 [ -d venv ] || python3 -m venv venv
 . venv/bin/activate
@@ -11,6 +12,10 @@ addr="10.100.4.202"
 	cd 3rdparty/tvm/build
 	cp ../cmake/config.cmake .
 	echo "set(TVM_FFI_BUILD_PYTHON_MODULE ON)" >> config.cmake
+	echo "set(USE_STRELA_CODEGEN ON)" >> config.cmake
+	echo "set(USE_STRELA_RUNTIME ON)" >> config.cmake
+	echo "add_compile_options(-Wno-psabi)" >> config.cmake
+	echo "set(STRELA_INCLUDE_DIR $strela_include)" config.cmake
 	cmake .. \
 		-DCMAKE_SYSTEM_NAME=Linux \
 		-DCMAKE_SYSTEM_PROCESSOR=arm \

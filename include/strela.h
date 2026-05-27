@@ -10,6 +10,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* STRELA hardware configuration constants.
  */
 enum {
@@ -19,12 +23,12 @@ enum {
 
 typedef int32_t strela_word;
 
-typedef enum strela_err strela_err;
 enum strela_err {
 	STRELA_ERR_OK,
 	STRELA_ERR_BAD_ARG,
 	STRELA_ERR_NO_MEM,
 };
+typedef enum strela_err strela_err;
 
 /* STRELA result type.
  * Negative numbers are used for strela_err while positive ones shall be
@@ -106,5 +110,9 @@ void          strela_buffer_free_all(strela_dev *dev);
  */
 void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
 void strela_execute(strela_dev *dev);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
