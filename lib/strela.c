@@ -169,7 +169,7 @@ strela_dev_initialized(strela_dev *dev) {
 }
 
 strela_kernel
-strela_kernel_get(strela_dev *dev) {
+strela_kernel_alloc(strela_dev *dev) {
 	strela_kernel res = {0};
 	if (strela_dev_ok(dev)) {
 		unsigned char *ptr = pool_alloc(&dev->kernel_pool);
@@ -205,7 +205,7 @@ strela_kernel_set(strela_dev *dev, strela_kernel kernel, const uint32_t data[STR
 }
 
 void
-strela_kernel_put(strela_dev *dev, strela_kernel kernel) {
+strela_kernel_free(strela_dev *dev, strela_kernel kernel) {
 	if (strela_dev_ok(dev)) {
 		if (!kernel.valid || kernel.handle >= 128) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
@@ -219,7 +219,7 @@ strela_kernel_put(strela_dev *dev, strela_kernel kernel) {
 }
 
 void
-strela_kernel_put_all(strela_dev *dev) {
+strela_kernel_free_all(strela_dev *dev) {
 	if (strela_dev_ok(dev)) {
 		pool_free_all(&dev->kernel_pool);
 	}
@@ -257,6 +257,30 @@ strela_buffer_ptr(strela_dev *dev, strela_buffer buffer) {
 		(uintptr_t) dev->base
 		+ (uintptr_t) (buffer.offset_words_from_base*sizeof (strela_word))
 	);
+}
+
+void
+strela_buffer_set(strela_dev *dev, strela_buffer buffer, const strela_word *ptr) {
+	if (strela_dev_ok(dev)) {
+		if (!buffer.valid) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		} else {
+			strela_word *strela_buf = strela_buffer_ptr(dev, buffer);
+			memcpy(strela_buf, ptr, buffer.size_words*sizeof (strela_word));
+		}
+	}
+}
+
+void
+strela_buffer_get(strela_dev *dev, strela_buffer buffer, strela_word *ptr) {
+	if (strela_dev_ok(dev)) {
+		if (!buffer.valid) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		} else {
+			const strela_word *strela_buf = strela_buffer_ptr(dev, buffer);
+			memcpy(ptr, strela_buf, buffer.size_words*sizeof (strela_word));
+		}
+	}
 }
 
 void

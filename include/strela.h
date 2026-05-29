@@ -88,11 +88,11 @@ bool        strela_dev_initialized(strela_dev *dev);
 
 /* STRELA kernels management.
  */
-strela_kernel strela_kernel_get(strela_dev *dev);
+strela_kernel strela_kernel_alloc(strela_dev *dev);
 void          strela_kernel_set(strela_dev *dev, strela_kernel kernel,
                                 const uint32_t data[STRELA_KERNEL_SIZE]);
-void          strela_kernel_put(strela_dev *dev, strela_kernel kernel);
-void          strela_kernel_put_all(strela_dev *dev);
+void          strela_kernel_free(strela_dev *dev, strela_kernel kernel);
+void          strela_kernel_free_all(strela_dev *dev);
 
 /* STRELA input and output data buffers management.
  * A pointer can be obtained to read and write data.
@@ -101,6 +101,10 @@ void          strela_kernel_put_all(strela_dev *dev);
  */
 strela_buffer strela_buffer_alloc(strela_dev *dev, size_t size);
 strela_word  *strela_buffer_ptr(strela_dev *dev, strela_buffer buffer);
+void          strela_buffer_set(strela_dev *dev, strela_buffer buffer,
+	                            const strela_word *ptr);
+void          strela_buffer_get(strela_dev *dev, strela_buffer buffer,
+	                            strela_word *ptr);
 void          strela_buffer_free(strela_dev *dev, strela_buffer buffer);
 void          strela_buffer_free_all(strela_dev *dev);
 

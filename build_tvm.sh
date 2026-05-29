@@ -4,6 +4,7 @@ set -e
 
 addr="10.100.4.202"
 strela_include="$PWD/include"
+strela_lib="$PWD/lib"
 
 [ -d venv ] || python3 -m venv venv
 . venv/bin/activate
@@ -15,7 +16,8 @@ strela_include="$PWD/include"
 	echo "set(USE_STRELA_CODEGEN ON)" >> config.cmake
 	echo "set(USE_STRELA_RUNTIME ON)" >> config.cmake
 	echo "add_compile_options(-Wno-psabi)" >> config.cmake
-	echo "set(STRELA_INCLUDE_DIR $strela_include)" config.cmake
+	echo "set(STRELA_INCLUDE_DIR $strela_include)" >> config.cmake
+	echo "set(STRELA_LIB_DIR $strela_lib)" >> config.cmake
 	cmake .. \
 		-DCMAKE_SYSTEM_NAME=Linux \
 		-DCMAKE_SYSTEM_PROCESSOR=arm \
@@ -23,10 +25,11 @@ strela_include="$PWD/include"
 		-DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++-13
 	cmake --build . --parallel $(nproc)
 	cd ../3rdparty/tvm-ffi
+	CC=arm-linux-gnueabihf-gcc-13 \
+	CXX=arm-linux-gnueabihf-g++-13 \
+	_PYTHON_HOST_PLATFORM=linux-armv7l \
 	CFLAGS="-I $HOME/arm-sysroot/usr/include $CFLAGS" \
-		CXXFLAGS="-I $HOME/arm-sysroot/usr/include $CXXFLAGS" \
+	CXXFLAGS="-I $HOME/arm-sysroot/usr/include $CXXFLAGS" \
 		pip wheel .
-	mv -f apache_tvm_ffi-0.1.11-cp312-abi3-linux_x86_64.whl \
-		apache_tvm_ffi-0.1.11-cp312-abi3-linux_armv7l.whl
 )
 tar -czf - 3rdparty/tvm | ssh root@$addr "cat > tvm.tar.gz"

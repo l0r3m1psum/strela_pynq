@@ -71,7 +71,7 @@ test_device(unsigned which) {
 
     if (strela_dev_ok(dev)) {
         for (int i = 0; i < 1000; i++) {
-            strela_kernel kernel = strela_kernel_get(dev);
+            strela_kernel kernel = strela_kernel_alloc(dev);
             strela_buffer input = strela_buffer_alloc(dev, 1000);
             (void) kernel;
             (void) input;
@@ -90,7 +90,7 @@ test_device(unsigned which) {
     // field.
 
     {
-        strela_kernel kernel = strela_kernel_get(dev);
+        strela_kernel kernel = strela_kernel_alloc(dev);
         strela_kernel_set(dev, kernel, bypass_kernel);
         strela_buffer input = strela_buffer_alloc(dev, len);
         strela_buffer output = strela_buffer_alloc(dev, len);
@@ -127,7 +127,7 @@ test_device(unsigned which) {
         strela_config(dev, kernel, &conf);
         // Not necessary to free here but this is the earliest time that it is
         // safe to do.
-        strela_kernel_put(dev, kernel);
+        strela_kernel_free(dev, kernel);
         // There is no problem executing multiple times with the same configuration.
         strela_execute(dev);
         strela_execute(dev);
@@ -157,12 +157,12 @@ test_device(unsigned which) {
         // This is not necessary but it is something that the library should be
         // capable of doing.
         strela_buffer_free_all(dev);
-        strela_kernel_put_all(dev);
+        strela_kernel_free_all(dev);
     }
 
     // TODO: what happens to the library if multiple process use it?
     {
-        strela_kernel kernel = strela_kernel_get(dev);
+        strela_kernel kernel = strela_kernel_alloc(dev);
         strela_kernel_set(dev, kernel, relu_kernel);
         // STRELA can do in-place updates.
         strela_buffer input_output = strela_buffer_alloc(dev, len);
@@ -197,7 +197,7 @@ test_device(unsigned which) {
         };
 
         strela_config(dev, kernel, &conf);
-        strela_kernel_put(dev, kernel);
+        strela_kernel_free(dev, kernel);
         strela_execute(dev);
 
         if (output_ref && strela_dev_ok(dev)) {
@@ -216,10 +216,10 @@ test_device(unsigned which) {
         }
 
         strela_buffer_free(dev, input_output);
-        strela_kernel_put(dev, kernel);
+        strela_kernel_free(dev, kernel);
         strela_dev_reset_err(dev);
         strela_buffer_free_all(dev);
-        strela_kernel_put_all(dev);
+        strela_kernel_free_all(dev);
     }
 
     strela_dev_deinit(dev);

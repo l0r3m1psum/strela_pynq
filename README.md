@@ -36,6 +36,7 @@ sudo apt install build-essential flex bison gcc-13-arm-linux-gnueabihf bc device
 # Additional dependencies to build TVM
 sudo apt install cmake g++-13-arm-linux-gnueabihf python3-venv
 # For TVM-FFI
+sudo apt install ninja-build
 mkdir -p ~/arm-sysroot
 cd ~/arm-sysroot
 wget "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/python3.12/libpython3.12-dev_3.12.3-1ubuntu0.13_armhf.deb"
