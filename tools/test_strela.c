@@ -97,13 +97,13 @@ test_device(unsigned which) {
         strela_word *output_ref = malloc(sizeof *output_ref * len);
 
         if (output_ref && strela_dev_ok(dev)) {
-            strela_word *input_ptr = strela_buffer_ptr(dev, input);
-            strela_word *output_ptr = strela_buffer_ptr(dev, output);
+            strela_word *input_ptr = strela_buffer_to_ptr(dev, input);
+            strela_word *output_ptr = strela_buffer_to_ptr(dev, output);
             for (size_t i = 0; i < len; i++) {
                 input_ptr[i] = i;
             }
             memset(output_ptr, 0, sizeof *output_ptr * len);
-            memcpy(output_ref, strela_buffer_ptr(dev, input), sizeof *output_ref * len);
+            memcpy(output_ref, strela_buffer_to_ptr(dev, input), sizeof *output_ref * len);
         }
 
         size_t len1 = len/4;
@@ -137,10 +137,10 @@ test_device(unsigned which) {
 
         if (output_ref && strela_dev_ok(dev)) {
             printf("Results of bypass kernel:\n");
-            inspect_mem("input", strela_buffer_ptr(dev, input), len);
-            inspect_mem("output", strela_buffer_ptr(dev, output), len);
+            inspect_mem("input", strela_buffer_to_ptr(dev, input), len);
+            inspect_mem("output", strela_buffer_to_ptr(dev, output), len);
             inspect_mem("output_ref", output_ref, len);
-            if (memcmp(strela_buffer_ptr(dev, output), output_ref, sizeof (strela_word) * len) != 0) {
+            if (memcmp(strela_buffer_to_ptr(dev, output), output_ref, sizeof (strela_word) * len) != 0) {
                 fprintf(stderr, "bypass made mistakes\n");
                 errors++;
             } else {
@@ -169,13 +169,13 @@ test_device(unsigned which) {
         strela_word *output_ref = malloc(sizeof *output_ref * len);
 
         if (output_ref && strela_dev_ok(dev)) {
-            strela_word *input_output_ptr = strela_buffer_ptr(dev, input_output);
+            strela_word *input_output_ptr = strela_buffer_to_ptr(dev, input_output);
             for (size_t i = 0; i < len; i++) {
                 input_output_ptr[i] = i%2 == 0 ? 1 : -1;
                 output_ref[i] = max(0, input_output_ptr[i]);
             }
             printf("Before relu kernel:\n");
-            inspect_mem("input_output", strela_buffer_ptr(dev, input_output), len);
+            inspect_mem("input_output", strela_buffer_to_ptr(dev, input_output), len);
             inspect_mem("output_ref", output_ref, len);
         }
 
@@ -202,9 +202,9 @@ test_device(unsigned which) {
 
         if (output_ref && strela_dev_ok(dev)) {
             printf("Results of relu kernel:\n");
-            inspect_mem("input_output", strela_buffer_ptr(dev, input_output), len);
+            inspect_mem("input_output", strela_buffer_to_ptr(dev, input_output), len);
             inspect_mem("output_ref", output_ref, len);
-            if (memcmp(strela_buffer_ptr(dev, input_output), output_ref, sizeof (strela_word) * len) != 0) {
+            if (memcmp(strela_buffer_to_ptr(dev, input_output), output_ref, sizeof (strela_word) * len) != 0) {
                 fprintf(stderr, "relu made mistakes\n");
                 errors++;
             } else {

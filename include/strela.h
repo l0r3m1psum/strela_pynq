@@ -77,7 +77,7 @@ struct strela_conf {
 };
 
 /* This function returns 0 on success and -1 if an error happens. An incomplete
- * count could be returned. If an error occurs errno is set.  */
+ * count could be returned. If an error occurs errno is set. */
 int         strela_device_count(unsigned *count);
 
 strela_dev *strela_dev_init(unsigned which_strela);
@@ -101,7 +101,8 @@ void          strela_kernel_free_all(strela_dev *dev);
  * free list implementation should be used.
  */
 strela_buffer strela_buffer_alloc(strela_dev *dev, size_t size);
-strela_word  *strela_buffer_ptr(strela_dev *dev, strela_buffer buffer);
+strela_word  *strela_buffer_to_ptr(strela_dev *dev, strela_buffer buffer);
+// strela_buffer strela_buffer_from_ptr(strela_dev *dev, const void *ptr);
 void          strela_buffer_set(strela_dev *dev, strela_buffer buffer,
 	                            const strela_word *ptr);
 void          strela_buffer_get(strela_dev *dev, strela_buffer buffer,

@@ -33,17 +33,17 @@ strela_device_count(unsigned *count) {
 	char path_buf[] = "/dev/strelaX";
 	int last_char = COUNTOF(path_buf) - 1 - 1;
 	int res = 0;
-	int old_errno = 0;
+	int old_errno = errno;
 
 	// TODO: use snprintf
 	static_assert(STRELA_MAX_NUM < 10, "maximum one decimal digit.");
 	// We need to rest errno to determine if access failed or the file just does
 	// not exists.
-	old_errno = errno;
 	errno = 0;
 
 	for (int i = 0; i < STRELA_MAX_NUM; i++) {
 		path_buf[last_char] = '0' + i;
+
 		if (access(path_buf, F_OK) == -1) {
 			break;
 		} else {
@@ -53,7 +53,7 @@ strela_device_count(unsigned *count) {
 
 	*count = local_count;
 
-	if (errno != 0) {
+	if (errno != ENOENT && errno != 0) {
 		perror("access");
 		res = -1;
 	} else {
@@ -248,16 +248,36 @@ strela_buffer_alloc(strela_dev *dev, size_t size_words) {
 }
 
 strela_word *
-strela_buffer_ptr(strela_dev *dev, strela_buffer buffer) {
+strela_buffer_to_ptr(strela_dev *dev, strela_buffer buffer) {
 	// We do not want to return null pointers and requiring that this function
 	// is used only when no error has ever happened is a reasonable request for
 	// the programmer.
-	if (!buffer.valid) abort();
+	if (!buffer.valid || !strela_dev_ok(dev)) abort();
 	return (strela_word *) (
 		(uintptr_t) dev->base
 		+ (uintptr_t) (buffer.offset_words_from_base*sizeof (strela_word))
 	);
 }
+
+#if 0
+strela_buffer
+strela_buffer_from_ptr(strela_dev *dev, const void *ptr) {
+	strela_buffer res = {0};
+	if (strela_dev_ok(dev)) {
+		if ((uintptr_t) dev->base <= (uintptr_t) ptr
+			&& (uintptr_t) ptr < (uintptr_t) dev->base + STRELA_DATA_REGION_SIZE) {
+			// At this point we have to assume that the allocation is valid...
+			res.valid = true;
+			res.handle = ((uintptr_t) ptr - (uintptr_t) dev->base)
+				/ (uintptr_t) sizeof (strela_word)
+			// FIXME: size???
+		} else {
+			res.valid = false;
+		}
+	}
+	return res;
+}
+#endif
 
 void
 strela_buffer_set(strela_dev *dev, strela_buffer buffer, const strela_word *ptr) {
@@ -265,7 +285,7 @@ strela_buffer_set(strela_dev *dev, strela_buffer buffer, const strela_word *ptr)
 		if (!buffer.valid) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
 		} else {
-			strela_word *strela_buf = strela_buffer_ptr(dev, buffer);
+			strela_word *strela_buf = strela_buffer_to_ptr(dev, buffer);
 			memcpy(strela_buf, ptr, buffer.size_words*sizeof (strela_word));
 		}
 	}
@@ -277,7 +297,7 @@ strela_buffer_get(strela_dev *dev, strela_buffer buffer, strela_word *ptr) {
 		if (!buffer.valid) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
 		} else {
-			const strela_word *strela_buf = strela_buffer_ptr(dev, buffer);
+			const strela_word *strela_buf = strela_buffer_to_ptr(dev, buffer);
 			memcpy(ptr, strela_buf, buffer.size_words*sizeof (strela_word));
 		}
 	}
