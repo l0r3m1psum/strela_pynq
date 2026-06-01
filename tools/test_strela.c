@@ -113,10 +113,10 @@ test_device(unsigned which) {
         // means that the context is not okay and the strela_config function will
         // ignore the data.
         strela_conf conf = {
-            .inp0_offset = input.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = sizeof (strela_word),
-            .inp1_offset = input.offset_words_from_base + len1*1, .inp1_count = len1, .inp1_stride = sizeof (strela_word),
-            .inp2_offset = input.offset_words_from_base + len1*2, .inp2_count = len1, .inp2_stride = sizeof (strela_word),
-            .inp3_offset = input.offset_words_from_base + len1*3, .inp3_count = len2, .inp3_stride = sizeof (strela_word),
+            .inp0_offset = input.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = 1,
+            .inp1_offset = input.offset_words_from_base + len1*1, .inp1_count = len1, .inp1_stride = 1,
+            .inp2_offset = input.offset_words_from_base + len1*2, .inp2_count = len1, .inp2_stride = 1,
+            .inp3_offset = input.offset_words_from_base + len1*3, .inp3_count = len2, .inp3_stride = 1,
 
             .out0_offset = output.offset_words_from_base + len1*0, .out0_count = len1,
             .out1_offset = output.offset_words_from_base + len1*1, .out1_count = len1,
@@ -185,13 +185,13 @@ test_device(unsigned which) {
 
         strela_conf conf = {
 #if 0
-            .inp0_offset = input_output.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = sizeof (strela_word),
-            .inp3_offset = input_output.offset_words_from_base + len1*1, .inp3_count = len2, .inp3_stride = sizeof (strela_word),
+            .inp0_offset = input_output.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = 1,
+            .inp3_offset = input_output.offset_words_from_base + len1*1, .inp3_count = len2, .inp3_stride = 1,
 
             .out0_offset = input_output.offset_words_from_base + len1*0, .out0_count = len1,
             .out3_offset = input_output.offset_words_from_base + len1*1, .out3_count = len2,
 #else
-            .inp0_offset = input_output.offset_words_from_base, .inp0_count = len, .inp0_stride = sizeof (strela_word),
+            .inp0_offset = input_output.offset_words_from_base, .inp0_count = len, .inp0_stride = 1,
             .out0_offset = input_output.offset_words_from_base, .out0_count = len,
 #endif
         };

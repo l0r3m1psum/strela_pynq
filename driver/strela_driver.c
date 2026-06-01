@@ -166,14 +166,14 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			writel(dma_addr + ctrl.conf_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_CONF_ADDR);
 			writel(ctrl.conf_count*STRELA_WORD_SIZE,             base_addr + STRELA_REG_CONF_SIZE);
 
-			writel(dma_addr + ctrl.inp0_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP0_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.inp0_stride, ctrl.inp0_count), base_addr + STRELA_REG_INP0_SIZE);
-			writel(dma_addr + ctrl.inp1_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP1_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.inp1_stride, ctrl.inp1_count), base_addr + STRELA_REG_INP1_SIZE);
-			writel(dma_addr + ctrl.inp2_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP2_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.inp2_stride, ctrl.inp2_count), base_addr + STRELA_REG_INP2_SIZE);
-			writel(dma_addr + ctrl.inp3_offset*STRELA_WORD_SIZE,        base_addr + STRELA_REG_INP3_ADDR);
-			writel(STRELA_MKINPSIZE(ctrl.inp3_stride, ctrl.inp3_count), base_addr + STRELA_REG_INP3_SIZE);
+			writel(dma_addr + ctrl.inp0_offset*STRELA_WORD_SIZE,                         base_addr + STRELA_REG_INP0_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp0_stride*STRELA_WORD_SIZE, ctrl.inp0_count), base_addr + STRELA_REG_INP0_SIZE);
+			writel(dma_addr + ctrl.inp1_offset*STRELA_WORD_SIZE,                         base_addr + STRELA_REG_INP1_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp1_stride*STRELA_WORD_SIZE, ctrl.inp1_count), base_addr + STRELA_REG_INP1_SIZE);
+			writel(dma_addr + ctrl.inp2_offset*STRELA_WORD_SIZE,                         base_addr + STRELA_REG_INP2_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp2_stride*STRELA_WORD_SIZE, ctrl.inp2_count), base_addr + STRELA_REG_INP2_SIZE);
+			writel(dma_addr + ctrl.inp3_offset*STRELA_WORD_SIZE,                         base_addr + STRELA_REG_INP3_ADDR);
+			writel(STRELA_MKINPSIZE(ctrl.inp3_stride*STRELA_WORD_SIZE, ctrl.inp3_count), base_addr + STRELA_REG_INP3_SIZE);
 
 			writel(dma_addr + ctrl.out0_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_OUT0_ADDR);
 			writel(           ctrl.out0_count*STRELA_WORD_SIZE,  base_addr + STRELA_REG_OUT0_SIZE);

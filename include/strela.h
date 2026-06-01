@@ -60,7 +60,8 @@ struct strela_buffer {
 
 /* STRELA I/O configuration.
  * This struct closely mirrors the data used for ioctl but it is used to
- * decouple this generic header from the OS specific one.
+ * decouple this generic header from the OS specific one. Everything is in
+ * STRELA words.
  */
 typedef struct strela_conf strela_conf;
 struct strela_conf {

@@ -104,10 +104,10 @@ strela_bypass(
     struct strela_ctrl ctrl = {
         .conf_offset = CONFIG_OFFSET, .conf_count = KRNL_SIZE,
 
-        .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = STRELA_WORD_SIZE,
-        .inp1_offset = INPUT_OFFSET + len1*1, .inp1_count = len1, .inp1_stride = STRELA_WORD_SIZE,
-        .inp2_offset = INPUT_OFFSET + len1*2, .inp2_count = len1, .inp2_stride = STRELA_WORD_SIZE,
-        .inp3_offset = INPUT_OFFSET + len1*3, .inp3_count = len2, .inp3_stride = STRELA_WORD_SIZE,
+        .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = 1,
+        .inp1_offset = INPUT_OFFSET + len1*1, .inp1_count = len1, .inp1_stride = 1,
+        .inp2_offset = INPUT_OFFSET + len1*2, .inp2_count = len1, .inp2_stride = 1,
+        .inp3_offset = INPUT_OFFSET + len1*3, .inp3_count = len2, .inp3_stride = 1,
 
         .out0_offset = OUTPUT_OFFSET + len1*0, .out0_count = len1,
         .out1_offset = OUTPUT_OFFSET + len1*1, .out1_count = len1,
@@ -188,8 +188,8 @@ strela_relu(
         .conf_offset = CONFIG_OFFSET,
         .conf_count = KRNL_SIZE,
 
-        .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = STRELA_WORD_SIZE,
-        // .inp3_offset = INPUT_OFFSET + len1*1, .inp3_count = len2, .inp3_stride = STRELA_WORD_SIZE,
+        .inp0_offset = INPUT_OFFSET + len1*0, .inp0_count = len1, .inp0_stride = 1,
+        // .inp3_offset = INPUT_OFFSET + len1*1, .inp3_count = len2, .inp3_stride = 1,
 
         .out0_offset = OUTPUT_OFFSET + len1*0, .out0_count = len1,
         // .out3_offset = OUTPUT_OFFSET + len1*1, .out3_count = len2,
