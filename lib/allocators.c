@@ -391,7 +391,7 @@ free_list_free_all(Free_List *fl) {
 
 static void
 free_list_init(Free_List *fl, void *data, size_t size) {
-	uintptr_t start = align_forward_uintptr((uintptr_t)data, sizeof (void*));
+	uintptr_t start = align_forward_uintptr((uintptr_t)data, sizeof (max_align_t));
 	size_t adjustment = start - (uintptr_t)data;
 
 	assert(size + sizeof (Free_List_Node) > adjustment && "Buffer too small for alignment");
@@ -525,12 +525,12 @@ free_list_alloc(Free_List *fl, size_t size, size_t alignment) {
 	if (size < sizeof(Free_List_Node)) {
 		size = sizeof(Free_List_Node);
 	}
-	if (alignment < sizeof (void *)) {
-		alignment = sizeof (void *);
+	if (alignment < sizeof (max_align_t)) {
+		alignment = sizeof (max_align_t);
 	}
 
 	// This should be done by calc_padding_with_header
-	// size = align_forward_size(size, alignment);
+	size = align_forward_size(size, alignment);
 
 	if (fl->policy == Placement_Policy_Find_Best) {
 		node = free_list_find_best(fl, size, alignment, &padding, &prev_node);
