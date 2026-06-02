@@ -66,7 +66,7 @@ static void pool_free_all(Pool *p);
 // multiple of chunk_alignment.
 static void
 pool_init(Pool *p, void *backing_buffer, size_t backing_buffer_length,
-			   size_t chunk_size, size_t chunk_alignment) {
+			size_t chunk_size, size_t chunk_alignment) {
 	// Align backing buffer to the specified chunk alignment
 	uintptr_t initial_start = (uintptr_t)backing_buffer;
 	uintptr_t start = align_forward_uintptr(initial_start, (uintptr_t)chunk_alignment);
@@ -345,16 +345,19 @@ int main(int argc, char **argv) {
 }
 #endif
 
-// Unlike our trivial stack allocator, this header needs to store the
-// block size along with the padding meaning the header is a bit
-// larger than the trivial stack allocator
+/* The free list allocator manages the memory area with an intrusive linked list
+ * too keep track of available blocks and headers associated with every
+ * allocation to record its size.
+ */
+
 typedef struct Free_List_Allocation_Header Free_List_Allocation_Header;
 struct Free_List_Allocation_Header {
-	size_t block_size;
-	size_t padding;
+	// We could have another linked list to keep track of the occupied blocks...
+	size_t orig_size;
+	size_t block_size; // after this header
+	size_t padding; // before this header
 };
 
-// An intrusive linked list for the free memory blocks
 typedef struct Free_List_Node Free_List_Node;
 struct Free_List_Node {
 	Free_List_Node *next;
@@ -364,14 +367,14 @@ struct Free_List_Node {
 typedef enum Placement_Policy Placement_Policy;
 enum Placement_Policy {
 	Placement_Policy_Find_First,
-	Placement_Policy_Find_Best
+	Placement_Policy_Find_Best,
 };
 
 typedef struct Free_List Free_List;
 struct Free_List {
 	void            *data;
 	size_t           size;
-	size_t           used;
+	size_t           used; // This can be used to avoid traversing the free list when allocating
 
 	Free_List_Node  *head;
 	Placement_Policy policy;
@@ -396,7 +399,7 @@ free_list_init(Free_List *fl, void *data, size_t size) {
 	fl->data = (void *)start;
 	fl->size = size - adjustment;
 	free_list_free_all(fl);
-	}
+}
 
 static size_t
 calc_padding_with_header(uintptr_t ptr, uintptr_t alignment, size_t header_size) {
@@ -517,6 +520,7 @@ free_list_alloc(Free_List *fl, size_t size, size_t alignment) {
 	Free_List_Node *node = NULL;
 	size_t alignment_padding, required_space, remaining;
 	Free_List_Allocation_Header *header_ptr;
+	size_t orig_size = size;
 
 	if (size < sizeof(Free_List_Node)) {
 		size = sizeof(Free_List_Node);
@@ -525,7 +529,8 @@ free_list_alloc(Free_List *fl, size_t size, size_t alignment) {
 		alignment = sizeof (void *);
 	}
 
-	size = align_forward_size(size, alignment);
+	// This should be done by calc_padding_with_header
+	// size = align_forward_size(size, alignment);
 
 	if (fl->policy == Placement_Policy_Find_Best) {
 		node = free_list_find_best(fl, size, alignment, &padding, &prev_node);
@@ -552,6 +557,7 @@ free_list_alloc(Free_List *fl, size_t size, size_t alignment) {
 	free_list_node_remove(&fl->head, prev_node, node);
 
 	header_ptr = (Free_List_Allocation_Header *)((char *)node + alignment_padding);
+	header_ptr->orig_size = orig_size;
 	header_ptr->block_size = required_space;
 	header_ptr->padding = alignment_padding;
 

@@ -22,7 +22,7 @@ struct strela_dev {
 	bool initialized;
 	strela_res res;
 	Pool kernel_pool;
-	Arena buffer_arena;
+	Free_List buffer_free_list;
 };
 
 static strela_dev devices[STRELA_MAX_NUM];
@@ -108,14 +108,14 @@ strela_dev_init(unsigned which_strela) {
 			pool_init(
 				&dev->kernel_pool,
 				base,
-				4*STRELA_KERNEL_SIZE*128,
-				4*STRELA_KERNEL_SIZE,
-				1 // Kernels can be byte aligned.
+				sizeof (strela_word)*STRELA_KERNEL_SIZE*128,
+				sizeof (strela_word)*STRELA_KERNEL_SIZE,
+				sizeof (strela_word)
 			);
-			arena_init(
-				&dev->buffer_arena,
-				(unsigned char *) base + 4*STRELA_KERNEL_SIZE*128,
-				STRELA_DATA_REGION_SIZE - 4*STRELA_KERNEL_SIZE*128
+			free_list_init(
+				&dev->buffer_free_list,
+				(unsigned char *) base + sizeof (strela_word)*STRELA_KERNEL_SIZE*128,
+				STRELA_DATA_REGION_SIZE - sizeof (strela_word)*STRELA_KERNEL_SIZE*128
 			);
 		} else {
 			assert(!dev->initialized);
@@ -225,18 +225,24 @@ strela_kernel_free_all(strela_dev *dev) {
 	}
 }
 
+static size_t
+internal_ptr_to_buffer_offset(strela_dev *dev, const void *ptr) {
+	if (!strela_dev_ok(dev)) abort();
+	return ((uintptr_t) ptr - (uintptr_t) dev->base)
+		/ (uintptr_t) sizeof (strela_word);
+}
+
 strela_buffer
 strela_buffer_alloc(strela_dev *dev, size_t size_words) {
 	strela_buffer res = {0};
 	if (strela_dev_ok(dev)) {
 		size_t size_bytes = size_words * sizeof (strela_word);
 		if (size_bytes >= size_words) {
-			unsigned char *ptr = arena_alloc_align(&dev->buffer_arena, size_bytes, sizeof (strela_word));
+			unsigned char *ptr = free_list_alloc(&dev->buffer_free_list, size_bytes, sizeof (strela_word));
 			if (ptr) {
 				res.valid = true;
 				res.size_words = size_words;
-				res.offset_words_from_base = ((uintptr_t) ptr - (uintptr_t) dev->base)
-					/ (uintptr_t) sizeof (strela_word);
+				res.offset_words_from_base = internal_ptr_to_buffer_offset(dev, ptr);
 			} else {
 				dev->res.errnum = -STRELA_ERR_NO_MEM;
 			}
@@ -259,28 +265,30 @@ strela_buffer_to_ptr(strela_dev *dev, strela_buffer buffer) {
 	);
 }
 
-#if 0
 strela_buffer
 strela_buffer_from_ptr(strela_dev *dev, const void *ptr) {
 	strela_buffer res = {0};
 	if (strela_dev_ok(dev)) {
 		if ((uintptr_t) dev->base <= (uintptr_t) ptr
 			&& (uintptr_t) ptr < (uintptr_t) dev->base + STRELA_DATA_REGION_SIZE) {
-			// At this point we have to assume that the allocation is valid...
 			res.valid = true;
-			res.handle = ((uintptr_t) ptr - (uintptr_t) dev->base)
-				/ (uintptr_t) sizeof (strela_word)
-			// FIXME: size???
-		} else {
-			res.valid = false;
+			res.offset_words_from_base = internal_ptr_to_buffer_offset(dev, ptr);
+			res.size_words = (
+				(Free_List_Allocation_Header *)
+				((uintptr_t) ptr - sizeof (Free_List_Allocation_Header))
+			)->orig_size;
+			// We could also check that the pointer is not part of the free list
+			// but assuming that the allocation is valid this is the best we can
+			// do.
+			if (res.size_words % sizeof (strela_word) != 0) abort();
+			res.size_words /= sizeof (strela_word);
 		}
 	}
 	return res;
 }
-#endif
 
 void
-strela_buffer_set(strela_dev *dev, strela_buffer buffer, const strela_word *ptr) {
+strela_buffer_set_data(strela_dev *dev, strela_buffer buffer, const strela_word *ptr) {
 	if (strela_dev_ok(dev)) {
 		if (!buffer.valid) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
@@ -292,7 +300,7 @@ strela_buffer_set(strela_dev *dev, strela_buffer buffer, const strela_word *ptr)
 }
 
 void
-strela_buffer_get(strela_dev *dev, strela_buffer buffer, strela_word *ptr) {
+strela_buffer_get_data(strela_dev *dev, strela_buffer buffer, strela_word *ptr) {
 	if (strela_dev_ok(dev)) {
 		if (!buffer.valid) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
@@ -309,14 +317,14 @@ strela_buffer_free(strela_dev *dev, strela_buffer buffer) {
 		if (!buffer.valid) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
 		}
-		// Bump allocator does nothing on free.
+		free_list_free(&dev->buffer_free_list, strela_buffer_to_ptr(dev, buffer));
 	}
 }
 
 void
 strela_buffer_free_all(strela_dev *dev) {
 	if (strela_dev_ok(dev)) {
-		arena_free_all(&dev->buffer_arena);
+		free_list_free_all(&dev->buffer_free_list);
 	}
 }
 

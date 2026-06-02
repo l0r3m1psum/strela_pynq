@@ -102,11 +102,11 @@ void          strela_kernel_free_all(strela_dev *dev);
  */
 strela_buffer strela_buffer_alloc(strela_dev *dev, size_t size);
 strela_word  *strela_buffer_to_ptr(strela_dev *dev, strela_buffer buffer);
-// strela_buffer strela_buffer_from_ptr(strela_dev *dev, const void *ptr);
-void          strela_buffer_set(strela_dev *dev, strela_buffer buffer,
-	                            const strela_word *ptr);
-void          strela_buffer_get(strela_dev *dev, strela_buffer buffer,
-	                            strela_word *ptr);
+strela_buffer strela_buffer_from_ptr(strela_dev *dev, const void *ptr);
+void          strela_buffer_set_data(strela_dev *dev, strela_buffer buffer,
+                                     const strela_word *ptr);
+void          strela_buffer_get_data(strela_dev *dev, strela_buffer buffer,
+                                     strela_word *ptr);
 void          strela_buffer_free(strela_dev *dev, strela_buffer buffer);
 void          strela_buffer_free_all(strela_dev *dev);
 

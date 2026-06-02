@@ -104,6 +104,17 @@ test_device(unsigned which) {
             }
             memset(output_ptr, 0, sizeof *output_ptr * len);
             memcpy(output_ref, strela_buffer_to_ptr(dev, input), sizeof *output_ref * len);
+
+            // We do this just to test the library functionality.
+            strela_buffer input_copy = strela_buffer_from_ptr(dev, input_ptr);
+            if (memcmp(&input, &input_copy, sizeof input) != 0) {
+                fprintf(stderr,
+                    "strela_buffer_from_ptr(dev, strela_buffer_to_ptr(dev, buf)) == buf"
+                    " is not true (note that the padding between the field of "
+                    "the struct should be zero)."
+                );
+                errors++;
+            }
         }
 
         size_t len1 = len/4;
