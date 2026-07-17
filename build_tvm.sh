@@ -2,9 +2,8 @@
 
 set -e
 
-addr="10.100.4.202"
-strela_include="$PWD/include"
-strela_lib="$PWD/lib"
+addr="10.100.4.137"
+export STRELA_HOME="$PWD"
 
 [ -d venv ] || python3 -m venv venv
 . venv/bin/activate
@@ -16,8 +15,6 @@ strela_lib="$PWD/lib"
 	echo "set(USE_STRELA_CODEGEN ON)" >> config.cmake
 	echo "set(USE_STRELA_RUNTIME ON)" >> config.cmake
 	echo "add_compile_options(-Wno-psabi)" >> config.cmake
-	echo "set(STRELA_INCLUDE_DIR $strela_include)" >> config.cmake
-	echo "set(STRELA_LIB_DIR $strela_lib)" >> config.cmake
 	cmake .. \
 		-DCMAKE_SYSTEM_NAME=Linux \
 		-DCMAKE_SYSTEM_PROCESSOR=arm \

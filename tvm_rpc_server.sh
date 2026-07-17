@@ -1,6 +1,6 @@
 #!/bin/sh
 
-addr=10.100.4.202
+addr=10.100.4.137
 
 ssh -t root@${addr} << EOF
 	set -e

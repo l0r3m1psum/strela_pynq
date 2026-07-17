@@ -4,7 +4,7 @@ set -e
 
 # TODO: make distinction between path and name.
 name=$1
-addr=10.100.4.202
+addr=10.100.4.137
 
 # https://docs.amd.com/r/en-US/ug585-zynq-7000-SoC-TRM/AXI_HP-Interface-AFI-axi_hp
 AXI_HP0=0xF8008000         # High-Performance AXI port 0 base register
