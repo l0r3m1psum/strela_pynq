@@ -17,7 +17,7 @@ extern "C" {
 /* STRELA hardware configuration constants.
  */
 enum {
-	STRELA_NPE = 16,
+	STRELA_NPE = 4 * 4,
 	STRELA_KERNEL_SIZE = STRELA_NPE * 5,
 };
 
