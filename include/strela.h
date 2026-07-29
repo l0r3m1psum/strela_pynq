@@ -1,6 +1,11 @@
 #ifndef STRELA_H
 #define STRELA_H
 
+/* TODO: functions that abort if called when the library has an error should
+ * have a special suffix like strela_buffer_to_ptrA
+ * TODO: rename strela_conf to strela_dma_conf
+ */
+
 /* STRELA library.
  * This library uses "monadic" error handling.
  * https://youtu.be/QpAhX-gsHMs?si=UzgvcwxAFiDjpbkB&t=1391
