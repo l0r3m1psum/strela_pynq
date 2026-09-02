@@ -1,10 +1,6 @@
 [submodule "3rdparty/linux-xlnx"]
 	path = 3rdparty/linux-xlnx
 	url = https://github.com/Xilinx/linux-xlnx.git
-[submodule "3rdparty/tvm"]
-	path = 3rdparty/tvm
-	url = https://github.com/l0r3m1psum/tvm.git
-	branch = strela_tvm
 [submodule "3rdparty/strela_axi_pynq_demo"]
 	path = 3rdparty/strela_axi_pynq_demo
 	url = https://github.com/m-d-upm/strela_axi_pynq_demo.git
