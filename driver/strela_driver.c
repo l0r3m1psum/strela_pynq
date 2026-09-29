@@ -35,7 +35,7 @@
 #include <linux/platform_device.h>
 #include <linux/random.h>
 
-#include "strela_regs.h"
+#include "strela_registers.h"
 #include "strela_ioctl.h"
 
 #if 0
@@ -46,7 +46,7 @@ MODULE_PARM_DESC(dma_alloc_size, "Allocation size for DMA area.");
 #endif
 
 static const struct of_device_id dev_ids[] = {
-	{ .compatible = "xlnx,cgra-axi-lite-1.0"},
+	{ .compatible = "xlnx,cgra-axi-lite-1.0" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, dev_ids);

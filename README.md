@@ -1,13 +1,27 @@
-Dependencies
+# Design
+
+The kernel driver is based on the Linux [accel subsystem](https://docs.kernel.org/accel/)
+and takes inspiration from the Rockchip's NPU dirver in `drivers/accel/rocket`.
+
+It differs from it because it needs to be efficiently driven by the [IREE](https://iree.dev)
+[HAL](https://iree.dev/reference/mlir-dialects/HAL/). For this reason it needs
+
+  * [in- and out- fences](https://docs.kernel.org/driver-api/sync_file.html#in-fences-and-out-fences)
+    to support [`hal.device.queue.execute`](https://docs.kernel.org/driver-api/sync_file.html#in-fences-and-out-fences)
+  * [non-coherent DMA allocation](https://docs.kernel.org/core-api/dma-api.html#part-ii-non-coherent-dma-allocations),
+    because STRELA has no MMU.
+  * range flush and invalidation using `PREP_BO` and `FINI_BO` because IREE
+    suballocates from large buffers.
+
+# Dependencies
 
   * `linux-xlnx` tag `xilinx-v2025.2`
   * GCC 13.3.0
 
 [Xilinx/AMD are bad](https://wiki.archlinux.org/title/Xilinx_Vivado) hence we need to dedicate and entire VM to their software.
 
-
 ```
-REM Accorting to UG973 for 2024.2 Ubuntu 24.04 is an officially supported distribution.
+REM According to UG973 for 2024.2 Ubuntu 24.04 is an officially supported distribution.
 curl -O "https://cdimages.ubuntu.com/ubuntu-wsl/noble/daily-live/current/noble-wsl-amd64.wsl"
 md D:\WSL\Ubuntu
 wsl --import Ubuntu D:\WSL\Ubuntu noble-wsl-amd64.wsl
@@ -33,14 +47,8 @@ sudo apt install x11-utils unzip
 sudo locale-gen en_US.UTF-8
 # Dependencies for building the kernel module.
 sudo apt install build-essential flex bison gcc-13-arm-linux-gnueabihf bc device-tree-compiler
-# Additional dependencies to build TVM
-sudo apt install cmake g++-13-arm-linux-gnueabihf python3-venv
-# For TVM-FFI
-sudo apt install ninja-build
-mkdir -p ~/arm-sysroot
-cd ~/arm-sysroot
-wget "https://ports.ubuntu.com/ubuntu-ports/pool/main/p/python3.12/libpython3.12-dev_3.12.3-1ubuntu0.13_armhf.deb"
-dpkg -x libpython3.12-dev_3.12.3-1ubuntu0.13_armhf.deb .
+# Nice to have for QEMU testing
+sudo usermod -aG kvm $USER
 ```
 
 ```

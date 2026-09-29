@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: GPL-2.0
+/* Buffer objects. Contiguous because the CGRA has no scatter/gather, cached
+ * because the CPU computes on them, and therefore synced by hand. */
+
+#include <linux/dma-mapping.h>
+#include <linux/slab.h>
+
+#include <drm/drm_gem.h>
+#include <drm/drm_gem_dma_helper.h>
+
+#include "strela_drm.h"
+#include "strela_device.h"
+#include "strela_gem.h"
+#include "strela_registers.h"
+
+/* Must mirror the direction strela_gem_create() allocated with:
+ * dma_free_noncoherent() takes one too, and dma-debug matches it against the
+ * allocation's. That is also why drm_gem_dma_object_free() cannot be the .free
+ * handler — it hardcodes DMA_TO_DEVICE (drm_gem_dma_helper.c:239).
+ *
+ * Only buffers this driver allocated reach here. An imported dma-buf is built
+ * by drm_gem_dma_prime_import_sg_table(), and since the driver no longer has a
+ * .gem_create_object hook that object keeps the helper's default funcs and is
+ * freed by the helper's own path. */
+static void strela_gem_free(struct drm_gem_object *obj)
+{
+	struct drm_gem_dma_object *dma_obj = to_drm_gem_dma_obj(obj);
+
+	if (dma_obj->vaddr)
+		dma_free_noncoherent(obj->dev->dev, obj->size, dma_obj->vaddr,
+				     dma_obj->dma_addr, DMA_BIDIRECTIONAL);
+
+	drm_gem_object_release(obj);
+	kfree(dma_obj);
+}
+
+/* The helper's drm_gem_dma_default_funcs with our own .free. It is static, so
+ * it has to be repeated; the rest are public inline wrappers and none of them
+ * cares about the DMA direction. */
+static const struct drm_gem_object_funcs strela_gem_funcs = {
+	.free = strela_gem_free,
+	.print_info = drm_gem_dma_object_print_info,
+	.get_sg_table = drm_gem_dma_object_get_sg_table,
+	.vmap = drm_gem_dma_object_vmap,
+	.mmap = drm_gem_dma_object_mmap,
+	.vm_ops = &drm_gem_dma_vm_ops,
+};
+
+/* What drm_gem_dma_create() does, except that the DMA direction is ours to
+ * choose.
+ *
+ * The helper hardcodes DMA_TO_DEVICE in its dma_alloc_noncoherent() call
+ * (drm_gem_dma_helper.c:149), which declares "the device only ever reads this".
+ * That is false for these buffers: the CGRA writes its output columns, and in
+ * IREE's zero-copy path one dispatch's output is the next one's input, so a
+ * buffer is read and written over its life. The direction belongs to the use,
+ * not to the buffer, which leaves DMA_BIDIRECTIONAL as the only honest answer.
+ *
+ * It is not only a description. dma-debug's check_sync() waives its direction
+ * checks exactly when the allocation was DMA_BIDIRECTIONAL
+ * (kernel/dma/debug.c:1125); under DMA_TO_DEVICE the invalidate half of
+ * strela_gem_sync_ioctl() trips both the "different direction" check and the
+ * "syncs device read-only DMA memory for cpu" one.
+ *
+ * __drm_gem_dma_create() is static, so its object setup is open-coded here.
+ * map_noncoherent keeps the buffers cached, at the price of those explicit
+ * syncs: CPU-side compute on a shared buffer would crawl on the write-combine
+ * default. */
+static struct drm_gem_dma_object *strela_gem_create(struct drm_device *drm,
+						    size_t size)
+{
+	struct drm_gem_dma_object *dma_obj;
+	int ret;
+
+	dma_obj = kzalloc(sizeof(*dma_obj), GFP_KERNEL);
+	if (!dma_obj)
+		return ERR_PTR(-ENOMEM);
+
+	dma_obj->base.funcs = &strela_gem_funcs;
+	dma_obj->map_noncoherent = true;
+
+	ret = drm_gem_object_init(drm, &dma_obj->base, size);
+	if (ret) {
+		kfree(dma_obj);
+		return ERR_PTR(ret);
+	}
+
+	ret = drm_gem_create_mmap_offset(&dma_obj->base);
+	if (ret)
+		goto err_release;
+
+	dma_obj->vaddr = dma_alloc_noncoherent(drm->dev, size,
+					       &dma_obj->dma_addr,
+					       DMA_BIDIRECTIONAL,
+					       GFP_KERNEL | __GFP_NOWARN);
+	if (!dma_obj->vaddr) {
+		ret = -ENOMEM;
+		goto err_release;
+	}
+
+	return dma_obj;
+
+err_release:
+	drm_gem_object_release(&dma_obj->base);
+	kfree(dma_obj);
+	return ERR_PTR(ret);
+}
+
+int strela_gem_new_ioctl(struct drm_device *drm, void *data,
+				struct drm_file *file_priv)
+{
+	struct drm_strela_gem_new *args = data;
+	struct drm_gem_dma_object *dma_obj;
+	int ret;
+
+	if (args->flags)
+		return -EINVAL;
+	if (!args->size || !IS_ALIGNED(args->size, STRELA_WORD_SIZE))
+		return -EINVAL;
+
+	dma_obj = strela_gem_create(drm, PAGE_ALIGN(args->size));
+	if (IS_ERR(dma_obj))
+		return PTR_ERR(dma_obj);
+
+	ret = drm_gem_handle_create(file_priv, &dma_obj->base, &args->handle);
+	if (!ret)
+		args->offset = drm_vma_node_offset_addr(&dma_obj->base.vma_node);
+
+	/* The handle holds its own reference. */
+	drm_gem_object_put(&dma_obj->base);
+	return ret;
+}
+
+int strela_gem_sync_ioctl(struct drm_device *drm, void *data,
+				 struct drm_file *file_priv)
+{
+	struct drm_strela_gem_sync *args = data;
+	struct drm_gem_dma_object *dma_obj;
+	struct drm_gem_object *obj;
+	int ret = 0;
+
+	if (args->flags & ~(DRM_STRELA_SYNC_TO_DEVICE | DRM_STRELA_SYNC_FROM_DEVICE))
+		return -EINVAL;
+
+	obj = drm_gem_object_lookup(file_priv, args->handle);
+	if (!obj)
+		return -ENOENT;
+
+	if (args->offset > obj->size || args->length > obj->size - args->offset) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	dma_obj = to_drm_gem_dma_obj(obj);
+
+	/* Partial syncs are allowed: the DMA API lets dma_handle and size differ
+	 * from the ones used at mapping time. */
+	if (args->flags & DRM_STRELA_SYNC_TO_DEVICE)
+		dma_sync_single_for_device(drm->dev, dma_obj->dma_addr + args->offset,
+					   args->length, DMA_TO_DEVICE);
+	if (args->flags & DRM_STRELA_SYNC_FROM_DEVICE)
+		dma_sync_single_for_cpu(drm->dev, dma_obj->dma_addr + args->offset,
+					args->length, DMA_FROM_DEVICE);
+
+out:
+	drm_gem_object_put(obj);
+	return ret;
+}

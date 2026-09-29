@@ -42,12 +42,16 @@
 #define STRELA_REG_CNTR_STALL   0x98
 #define STRELA_REG_OUT_ARB_HOLD 0xA0
 
+#define STRELA_OUT_ARB_HOLD_ENABLE BIT(0)
+
 #define STRELA_REG_OPA 0xF0
 #define STRELA_REG_OPB 0xF4
 #define STRELA_REG_OPR 0xF8 // Read only (Result = A + B)
 
 #define STRELA_REG_RESET_DMA 0xF8  // Write only
 
-#define STRELA_MKINPSIZE(stride, count) ((stride << 16) | stride*count)
+#define STRELA_RESET_DMA_PULSE BIT(0)
+
+#define STRELA_MKINPSIZE(stride, count) (((stride) << 16) | (stride)*(count))
 
 #endif

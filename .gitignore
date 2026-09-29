@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Short on purpose, in the style of 3rdparty/linux-xlnx/.gitignore: anything a
+# build generates belongs here, anything a human wrote does not. The kernel
+# ignores all dotfiles with ".*" and then negates the ones it wants back; with
+# only one kind of generated dotfile here, listing it is shorter.
+
+#
+# kbuild output from driver/
+#
+*.cmd
+*.ko
+*.mod
+*.mod.c
+*.o
+*.o.*
+*.so
+Module.symvers
+modules.order
+
+#
+# Test binaries built from tools/
+#
+/tools/test_allocator
+/tools/test_bypass
+/tools/test_strela
+/tools/test_strela2
+
+#
+# The QEMU harness: module build, initramfs and console log per target
+# (tools/run_qemu.sh), and the x86 kernel worktree it boots
+# (tools/build_x86_kernel.sh).
+#
+/qemu-run-*/
+
+
+/qemu-kernel-*/
+/build-pynq/
+
+#
+# Vivado scratch
+#
+.Xil/
+
+
+# Stuff from the XSA
+*.bit
+*.bit.bin
+*.dtbo

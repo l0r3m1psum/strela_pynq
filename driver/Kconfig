@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config DRM_ACCEL_STRELA
+	tristate "STRELA CGRA accelerator"
+	depends on DRM_ACCEL
+	depends on ARCH_ZYNQ || COMPILE_TEST
+	depends on MMU
+	select DRM_GEM_DMA_HELPER
+	select DRM_SCHED
+	help
+	  Choose this option to enable support for the STRELA coarse-grained
+	  reconfigurable array, as carried on the programmable logic of a
+	  Zynq-7000 (PYNQ-Z2).
+
+	  The CGRA has no IOMMU and no scatter/gather, so its buffers are
+	  physically contiguous; they are mapped cached and synchronised
+	  explicitly through the interface described in
+	  include/uapi/strela_drm.h.
+
+	  Loading the module with sim_dev_count=N registers N simulated devices
+	  instead of driving hardware, which is how the driver is tested without
+	  an FPGA. A simulated job copies each enabled column from its input to
+	  its output and computes nothing.
+
+	  If M is selected, the module will be called strela2.
