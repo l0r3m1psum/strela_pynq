@@ -111,6 +111,21 @@ echo
 # Strip kernel log
 sed -E 's/^\[[ ]*[0-9]+\.[0-9]+\] //' "$out/console.log" > "$out/tap.log"
 
+# A kernel splat fails the run even when every test says ok. The driver's
+# calling contracts are WARN_ON and lockdep assertions, and a WARN prints
+# without failing anything by itself — so without this they catch nothing.
+#
+# One exception, an upstream false positive: dma_alloc_pages() users never call
+# dma_mapping_error(), so the debug entry stays MAP_ERR_NOT_CHECKED and
+# check_unmap() complains on every free.
+splat=$(grep -E '^(WARNING:|BUG:|Kernel panic)' "$out/tap.log" |
+	grep -v 'check_unmap' || true)
+if [ -n "$splat" ]; then
+	echo "$splat" >&2
+	echo "FAIL: kernel splat (full log: $out/console.log)" >&2
+	exit 1
+fi
+
 # Anything not ok, or tests that did not run to completion, is a failure.
 if grep -q '^not ok' "$out/tap.log"; then
 	grep '^not ok' "$out/tap.log" >&2

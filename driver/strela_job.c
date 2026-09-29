@@ -103,6 +103,9 @@ static struct dma_fence *strela_run_job(struct drm_sched_job *base)
 		return ERR_PTR(-ENODEV);
 	}
 
+	/* The scheduler must not hand us a second job while one is on the device. */
+	drm_WARN_ON(&sdev->drm, sdev->active);
+
 	job->phase = STRELA_JOB_PHASE_CONFIG;
 	sdev->active = job;
 
@@ -127,16 +130,12 @@ static enum drm_gpu_sched_stat strela_timedout_job(struct drm_sched_job *base)
 
 	spin_lock_irqsave(&sdev->lock, flags);
 	was_active = sdev->active == job;
-	if (was_active) {
-		strela_hw_reset(sdev);
+	if (was_active)
 		sdev->active = NULL;
-	}
 	spin_unlock_irqrestore(&sdev->lock, flags);
 
 	if (was_active) {
-		/* Before the fence is signalled: signalling lets free_job() run,
-		 * and a simulated device may still be copying out of this job. */
-		strela_sim_settle(sdev);
+		strela_hw_stop(sdev);
 		drm_err(&sdev->drm, "job %llu timed out\n", job->hw_fence->seqno);
 		dma_fence_set_error(job->hw_fence, -ETIMEDOUT);
 		dma_fence_signal(job->hw_fence);

@@ -25,16 +25,11 @@ void strela_drain(struct strela_device *sdev)
 	spin_lock_irqsave(&sdev->lock, flags);
 	sdev->dying = true;
 	active = sdev->active;
-	if (active) {
-		strela_hw_reset(sdev);
-		sdev->active = NULL;
-	}
+	sdev->active = NULL;
 	spin_unlock_irqrestore(&sdev->lock, flags);
 
 	if (active) {
-		/* Before the fence is signalled: signalling lets free_job() run,
-		 * and a simulated device may still be copying out of this job. */
-		strela_sim_settle(sdev);
+		strela_hw_stop(sdev);
 		dma_fence_set_error(active->hw_fence, -ENODEV);
 		dma_fence_signal(active->hw_fence);
 	}

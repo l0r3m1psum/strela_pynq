@@ -26,6 +26,15 @@ static void strela_gem_free(struct drm_gem_object *obj)
 {
 	struct drm_gem_dma_object *dma_obj = to_drm_gem_dma_obj(obj);
 
+	/* An imported dma-buf belongs to its exporter, and the helper frees it
+	 * through drm_prime_gem_destroy(). It stays out of here only because
+	 * the driver has no .gem_create_object hook, so prime import leaves
+	 * gem_obj->funcs at the helper's defaults. Re-adding that hook would
+	 * route imports here and hand someone else's pages to
+	 * dma_free_noncoherent(). */
+	if (drm_WARN_ON(obj->dev, obj->import_attach))
+		return;
+
 	if (dma_obj->vaddr)
 		dma_free_noncoherent(obj->dev->dev, obj->size, dma_obj->vaddr,
 				     dma_obj->dma_addr, DMA_BIDIRECTIONAL);

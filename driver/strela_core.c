@@ -10,6 +10,8 @@
 #include <linux/hrtimer.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/kernel.h>
+#include <linux/lockdep.h>
 #include <linux/moduleparam.h>
 #include <linux/platform_device.h>
 #include <linux/random.h>
@@ -34,11 +36,9 @@ MODULE_PARM_DESC(sim_job_delay_us, "Simulated exec phase duration in microsecond
 void strela_hw_start(struct strela_device *sdev,
 			    enum strela_job_phase phase)
 {
+	lockdep_assert_held(&sdev->lock);
+
 	if (sdev->is_sim) {
-		/* The worker runs both phases of a job, so only the first start
-		 * queues it: by the second it is already inside it. That is what
-		 * keeps it from queueing itself from within
-		 * strela_job_phase_done(). */
 		if (phase == STRELA_JOB_PHASE_CONFIG) {
 			WRITE_ONCE(sdev->sim_abort, false);
 			queue_work(system_unbound_wq, &sdev->sim_work);
@@ -103,8 +103,11 @@ static void strela_hw_write_binding(struct strela_device *sdev,
 	 * STRELA_MKINPSIZE(stride_bytes, b->count) for both cases. */
 	u32 size = strided ? STRELA_MKINPSIZE(stride_bytes, b->count)
 			   : b->count * STRELA_WORD_SIZE;
+	dma_addr_t addr = b->obj ? strela_binding_addr(b) : 0;
 
-	writel(b->obj ? strela_binding_addr(b) : 0, sdev->base + regs.addr);
+	drm_WARN_ON(&sdev->drm, upper_32_bits(addr));
+
+	writel(addr, sdev->base + regs.addr);
 	writel(b->obj ? size : 0, sdev->base + regs.size);
 }
 
@@ -208,7 +211,7 @@ static void strela_sim_bypass_column(struct strela_device *sdev,
  *
  * Safe to keep using `job` after the unlock because a job is only freed once
  * its fence is signalled, and every path that signals one out from under us
- * calls strela_sim_settle() first. */
+ * calls strela_hw_stop() first. */
 static void strela_sim_work(struct work_struct *work)
 {
 	struct strela_device *sdev =
@@ -224,23 +227,17 @@ static void strela_sim_work(struct work_struct *work)
 	if (!job)
 		return;
 
-	/* Configuration: there is no CGRA to load, so the phase is a wait that
-	 * a reset can cut short. Taking time and being interruptible is all the
-	 * driver can observe about it anyway. */
 	if (!strela_sim_wait(sdev, strela_sim_phase_us(STRELA_JOB_PHASE_CONFIG)))
 		return;
 	strela_job_phase_done(sdev, STRELA_JOB_PHASE_CONFIG);
 
-	/* Every job, so that no output of this device is ever mistaken for
-	 * something the CGRA computed. */
+	/* TODO: move at driver probe... */
 	drm_warn(&sdev->drm,
 		 "simulated job: the CGRA is not modelled; each enabled column is copied input to output\n");
 
-	/* Execution: a bypass kernel over every column, one at a time, so that
-	 * a reset partway through leaves the earlier columns written and the
-	 * rest untouched — what stopping a DMA engine mid-transfer looks like. */
 	slice_us = strela_sim_phase_us(STRELA_JOB_PHASE_EXEC) / STRELA_NUM_IO_COLS;
 	for (i = 0; i < STRELA_NUM_IO_COLS; i++) {
+		/* On real hardware columns do DMA in parallel bu this is good enough. */
 		if (!strela_sim_wait(sdev, slice_us))
 			return;
 		strela_sim_bypass_column(sdev, &job->inputs[i], &job->outputs[i]);
@@ -249,22 +246,13 @@ static void strela_sim_work(struct work_struct *work)
 	strela_job_phase_done(sdev, STRELA_JOB_PHASE_EXEC);
 }
 
-/* A real reset stops the device before the write returns. The simulated one is
- * asynchronous, so its callers finish it off here — before signalling the
- * fence, which is what lets free_job() run. */
-void strela_sim_settle(struct strela_device *sdev)
-{
-	if (sdev->is_sim)
-		cancel_work_sync(&sdev->sim_work);
-}
-
 void strela_hw_program(struct strela_device *sdev,
 			      struct strela_job *job)
 {
 	int i;
 
-	/* A simulated device has no registers; its work is in
-	 * strela_sim_work(). */
+	lockdep_assert_held(&sdev->lock);
+
 	if (sdev->is_sim)
 		return;
 
@@ -278,11 +266,19 @@ void strela_hw_program(struct strela_device *sdev,
 	writel(STRELA_OUT_ARB_HOLD_ENABLE, sdev->base + STRELA_REG_OUT_ARB_HOLD);
 }
 
-void strela_hw_reset(struct strela_device *sdev)
+void strela_hw_stop(struct strela_device *sdev)
 {
+	struct strela_job *active;
+
+	might_sleep();
+	lockdep_assert_not_held(&sdev->lock);
+	active = READ_ONCE(sdev->active);
+	drm_WARN_ON(&sdev->drm, active);
+
 	if (sdev->is_sim) {
 		WRITE_ONCE(sdev->sim_abort, true);
 		wake_up(&sdev->sim_waitq);
+		cancel_work_sync(&sdev->sim_work);
 		return;
 	}
 
