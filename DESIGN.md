@@ -342,10 +342,10 @@ Three layers, all runnable without hardware:
 1. **KUnit** (`#if IS_ENABLED(CONFIG_KUNIT)` at the end of the driver) for pure
    logic: binding validation and register encoding. Runs at module load and
    reports TAP to dmesg.
-2. **Userspace tests** (`tools/test_strela2.c`) for everything needing real
+2. **Userspace tests** (`tests/test_strela2.c`) for everything needing real
    ioctls, fds and processes. TAP output via the kernel's `kselftest.h`.
 3. **QEMU harness** (`tools/run_qemu.sh` plus the static init in
-   `tools/qemu_init.c`) which boots a kernel with an initramfs, loads the module
+   `tests/qemu_init.c`) which boots a kernel with an initramfs, loads the module
    and runs the suites.
 
 Because parameters are load-time only (D6), the harness runs the module three

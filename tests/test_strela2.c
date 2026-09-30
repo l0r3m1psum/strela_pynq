@@ -781,7 +781,7 @@ struct test {
 };
 
 /* Each suite needs the module loaded with different parameters, and parameters
- * are fixed at load time, so the harness (tools/qemu_init.c) reloads the module
+ * are fixed at load time, so the harness (tests/qemu_init.c) reloads the module
  * between suites and passes the suite name here. */
 static const struct test core_tests[] = {
 	{ "single job completes", test_single_job },

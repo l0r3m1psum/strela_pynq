@@ -24,7 +24,6 @@ modules.order
 /tools/test_allocator
 /tools/test_bypass
 /tools/test_strela
-/tools/test_strela2
 
 #
 # The QEMU harness: module build, initramfs and console log per target
