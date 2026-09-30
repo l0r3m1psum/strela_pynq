@@ -14,8 +14,8 @@ jobs=${JOBS:-$(nproc)}
 	"$here/config/module.config" \
 	"$here/config/arm.config"
 
-# modules as well as the image: an out-of-tree module build needs this build's
-# Module.symvers to link against.
+# LOADADDR has to be the same as "Load Address" and "Entry Point" for the real
+# board mkimage -l /boot/uImage
 make -C "$ktree" O="$out" ARCH=arm CROSS_COMPILE="$cross" CC="$cc" \
-	-j"$jobs" zImage dtbs modules
+	LOADADDR=0x8000 -j"$jobs" zImage dtbs modules uImage
 echo "kernel: $out/arch/arm/boot/zImage"

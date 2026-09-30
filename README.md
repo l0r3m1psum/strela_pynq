@@ -49,6 +49,8 @@ sudo locale-gen en_US.UTF-8
 sudo apt install build-essential flex bison gcc-13-arm-linux-gnueabihf bc device-tree-compiler
 # Nice to have for QEMU testing
 sudo usermod -aG kvm $USER
+# To make a bootable image for the Pynq
+sudo apt install u-boot-tools
 ```
 
 ```
