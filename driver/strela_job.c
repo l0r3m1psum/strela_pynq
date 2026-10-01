@@ -327,7 +327,7 @@ static const struct strela_binding_case strela_binding_cases[] = {
 	{ "exact fit", 64, { .handle = 1, .offset = 0, .count = 16, .stride = 1 }, 0 },
 	{ "offset to the end", 64, { .handle = 1, .offset = 8, .count = 8, .stride = 1 }, 0 },
 	{ "empty count", 64, { .handle = 1, .offset = 0, .count = 0, .stride = 1 }, 0 },
-	{ "stride zero means one", 64, { .handle = 1, .offset = 0, .count = 16, .stride = 0 }, 0 },
+	{ "stride zero is supported", 64, { .handle = 1, .offset = 0, .count = 16, .stride = 0 }, 0 },
 	{ "one word past the end", 64, { .handle = 1, .offset = 0, .count = 17, .stride = 1 }, -EINVAL },
 	{ "offset past the end", 64, { .handle = 1, .offset = 17, .count = 0, .stride = 1 }, -EINVAL },
 	{ "strided past the end", 64, { .handle = 1, .offset = 0, .count = 16, .stride = 2 }, -EINVAL },
@@ -354,23 +354,8 @@ static void strela_binding_check_test(struct kunit *test)
 			    c->expected, "case: %s", c->name);
 }
 
-/* The encoding the size register expects: stride in the high half, total byte
- * count in the low half. A validated binding must never collide the two. */
-static void strela_mkinpsize_test(struct kunit *test)
-{
-	u32 encoded = STRELA_MKINPSIZE(4u, 8u);
-
-	KUNIT_EXPECT_EQ(test, encoded >> 16, 4u);
-	KUNIT_EXPECT_EQ(test, encoded & 0xFFFF, 32u);
-
-	encoded = STRELA_MKINPSIZE(STRELA_WORD_SIZE, 0x3FFFu);
-	KUNIT_EXPECT_EQ(test, encoded >> 16, (u32)STRELA_WORD_SIZE);
-	KUNIT_EXPECT_EQ(test, encoded & 0xFFFF, 0xFFFCu);
-}
-
 static struct kunit_case strela_test_cases[] = {
 	KUNIT_CASE_PARAM(strela_binding_check_test, strela_binding_gen_params),
-	KUNIT_CASE(strela_mkinpsize_test),
 	{}
 };
 

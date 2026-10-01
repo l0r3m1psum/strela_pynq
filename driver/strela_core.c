@@ -59,23 +59,42 @@ void strela_hw_start(struct strela_device *sdev,
 	}
 }
 
-static irqreturn_t strela_irq(int irq, void *data)
+static irqreturn_t strela_irq_handler(int irq, void *data)
 {
 	struct strela_device *sdev = data;
 	u32 status = readl(sdev->base + STRELA_REG_CTRL);
 
 	if (status & STRELA_CMD_PENDING_INT_CONFIG) {
 		writel(STRELA_CMD_CLEAR_INT_CONFIG, sdev->base + STRELA_REG_CTRL);
+		sdev->irq_status = status;
+		return IRQ_WAKE_THREAD;
+	} else if (status & STRELA_CMD_PENDING_INT_EXEC) {
+		writel(STRELA_CMD_CLEAR_INT_EXEC, sdev->base + STRELA_REG_CTRL);
+		sdev->irq_status = status;
+		return IRQ_WAKE_THREAD;
+	}
+
+	return IRQ_NONE;
+}
+
+static irqreturn_t strela_irq_thread_fn(int irq, void *data)
+{
+	struct strela_device *sdev = data;
+	u32 status = sdev->irq_status;
+
+	sdev->irq_status = 0;
+
+	if (status & STRELA_CMD_PENDING_INT_CONFIG) {
 		strela_job_phase_done(sdev, STRELA_JOB_PHASE_CONFIG);
 		return IRQ_HANDLED;
-	}
-	if (status & STRELA_CMD_PENDING_INT_EXEC) {
-		writel(STRELA_CMD_CLEAR_INT_EXEC, sdev->base + STRELA_REG_CTRL);
+	} else if (status & STRELA_CMD_PENDING_INT_EXEC) {
 		strela_job_phase_done(sdev, STRELA_JOB_PHASE_EXEC);
 		return IRQ_HANDLED;
 	}
+
 	return IRQ_NONE;
 }
+
 
 /* Byte address of a binding inside its buffer object. */
 static dma_addr_t strela_binding_addr(const struct strela_binding *b)
@@ -93,16 +112,13 @@ struct strela_binding_regs {
 
 static void strela_hw_write_binding(struct strela_device *sdev,
 				    const struct strela_binding *b,
-				    struct strela_binding_regs regs,
-				    bool strided)
+				    struct strela_binding_regs regs)
 {
-	u32 stride_bytes = b->stride * STRELA_WORD_SIZE;
-	/* TODO: Right now when reading the configuration a stride of 0 is used
-	 * and the hardware interprets it as STRELA_WORD_SIZE (I think) this
-	 * should be verified and in case just use
-	 * STRELA_MKINPSIZE(stride_bytes, b->count) for both cases. */
-	u32 size = strided ? STRELA_MKINPSIZE(stride_bytes, b->count)
-			   : b->count * STRELA_WORD_SIZE;
+	/* NOTE(Diego): max(b->stride, 1) is an hack to make it work with the
+	 * config binding wich does not support stride and should always be 0.
+	 */
+	u32 size = ((b->stride*STRELA_WORD_SIZE) << 16)
+		| max(b->stride, 1)*b->count*STRELA_WORD_SIZE;
 	dma_addr_t addr = b->obj ? strela_binding_addr(b) : 0;
 
 	drm_WARN_ON(&sdev->drm, upper_32_bits(addr));
@@ -253,14 +269,21 @@ void strela_hw_program(struct strela_device *sdev,
 
 	lockdep_assert_held(&sdev->lock);
 
+	/* TODO(Diego): this is very bad. The binding for config and outputs
+	 * should be of a different type i.e. without stride. Right now this is
+	 * a patch that makes tests fail. */
+	drm_WARN_ON(&sdev->drm, job->config.stride);
+	for (i = 0; i < STRELA_NUM_IO_COLS; i++)
+		drm_WARN_ON(&sdev->drm, job->outputs[i].stride);
+
 	if (sdev->is_sim)
 		return;
 
-	strela_hw_write_binding(sdev, &job->config, conf_regs, false);
+	strela_hw_write_binding(sdev, &job->config, conf_regs);
 
 	for (i = 0; i < STRELA_NUM_IO_COLS; i++) {
-		strela_hw_write_binding(sdev, &job->inputs[i], inp_regs[i], true);
-		strela_hw_write_binding(sdev, &job->outputs[i], out_regs[i], false);
+		strela_hw_write_binding(sdev, &job->inputs[i], inp_regs[i]);
+		strela_hw_write_binding(sdev, &job->outputs[i], out_regs[i]);
 	}
 
 	writel(STRELA_OUT_ARB_HOLD_ENABLE, sdev->base + STRELA_REG_OUT_ARB_HOLD);
@@ -314,8 +337,11 @@ int strela_hw_setup(struct strela_device *sdev,
 	if (irq < 0)
 		return irq;
 
-	ret = devm_request_irq(&pdev->dev, irq, strela_irq, IRQF_SHARED,
-			       dev_name(&pdev->dev), sdev);
+	ret = devm_request_threaded_irq(&pdev->dev, irq,
+					strela_irq_handler,
+					strela_irq_thread_fn,
+					IRQF_ONESHOT | IRQF_SHARED,
+					dev_name(&pdev->dev), sdev);
 	if (ret)
 		return ret;
 

@@ -1,19 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
-/* Userspace tests for the accel version of the driver (driver/strela_drv.c).
- *
- * Each test states a property of the job queue and then checks it. Run against
- * simulated devices, where no FPGA is needed and jobs take a few hundred
- * microseconds:
- *
- *   insmod strela2.ko sim_dev_count=2
- *   ./test_strela2
- *
- * The same binary works on real hardware, except for the tests that need the
- * sim_job_delay_us knob; those skip themselves.
- *
- * Output is TAP, via the kernel's own kselftest.h, so a harness can parse it.
- */
-
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -35,8 +19,6 @@
 #include "kselftest.h"
 #include "strela_drm.h"
 
-/* ARRAY_SIZE comes from kselftest.h. */
-
 /* Failures within the test that is currently running. */
 static int failures;
 
@@ -49,9 +31,6 @@ static int failures;
 			failures++;                                            \
 		}                                                              \
 	} while (0)
-
-
-
 
 /* ------------------------------------------------------------------------- */
 
@@ -252,7 +231,7 @@ static int submit_after(int fd, __u32 config, __u32 in_handle, __u32 out_handle,
 			__u32 out_syncobj, __u32 in_syncobj)
 {
 	struct drm_strela_submit args = {
-		.config = { .handle = config, .count = 80, .stride = 1 },
+		.config = { .handle = config, .count = 80, .stride = 0 },
 		.out_syncobj = out_syncobj,
 		.in_syncobj = in_syncobj,
 	};
@@ -264,7 +243,7 @@ static int submit_after(int fd, __u32 config, __u32 in_handle, __u32 out_handle,
 		.handle = in_handle, .count = 16, .stride = 1,
 	};
 	args.outputs[0] = (struct drm_strela_binding){
-		.handle = out_handle, .count = 16, .stride = 1,
+		.handle = out_handle, .count = 16, .stride = 0,
 	};
 
 	return ioctl(fd, DRM_IOCTL_STRELA_SUBMIT, &args);
@@ -318,6 +297,40 @@ static void test_single_job(int fd)
 	syncobj_put(fd, sync);
 }
 
+enum {
+	STRELA_PE_ROWS = 4,
+	STRELA_PE_COLS = 4,
+	STRELA_NPE = STRELA_PE_ROWS * STRELA_PE_COLS,
+	STRELA_KERNEL_SIZE = STRELA_NPE * 5,
+};
+/* Configured for four colums
+ */
+static const uint32_t bypass_kernel_bitstream[STRELA_KERNEL_SIZE] = {
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 4
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 0
+
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 5
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 1
+
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 14
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 10
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
+	0x00000021, 0x00000000, 0x00000012, 0x00000000, 0x00000000, // 2
+
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
+};
+
+/* TODO: libsterla should allocate a single GEM BO for kernels and
+ * sub-allocate from there. gem_sync should take additional arguments,
+ * for the sync range, which the underlying IOCTL already has. */
+
 /* The simulator's bypass kernel copies every enabled column from its input to
  * its output, so a job is observable as data movement and not only as a fence
  * that signals. Three columns are bound and the fourth left empty, which must
@@ -336,20 +349,18 @@ static void test_data_is_copied(int fd)
 {
 	enum { N = 16, COLS = 3 };
 	__u32 config, in[COLS], out[COLS], sync;
-	__u32 *in_ptr[COLS], *out_ptr[COLS];
+	__u32 *in_ptr[COLS], *out_ptr[COLS], *config_ptr;
 	struct drm_strela_submit args = { 0 };
-	unsigned int sim_devs;
 	int c, i;
 
-	if (!get_param("sim_dev_count", &sim_devs) || sim_devs == 0) {
-		ksft_test_result_skip("data is copied (simulator only)\n");
+	if (gem_new_mapped(fd, 80 * STRELA_WORD_SIZE, &config, (void **)&config_ptr)) {
+		CHECK(false, "gem_new_mapped(config) failed: %s", strerror(errno));
 		return;
 	}
-
-	if (gem_new(fd, 80 * STRELA_WORD_SIZE, &config)) {
-		CHECK(false, "gem_new(config) failed: %s", strerror(errno));
-		return;
-	}
+	memcpy(config_ptr, bypass_kernel_bitstream, sizeof bypass_kernel_bitstream);
+	CHECK(gem_sync(fd, config, DRM_STRELA_SYNC_TO_DEVICE, 0,
+			       sizeof bypass_kernel_bitstream) == 0,
+		      "sync(config) failed: %s", strerror(errno));
 	for (c = 0; c < COLS; c++) {
 		if (gem_new_mapped(fd, N * STRELA_WORD_SIZE, &in[c],
 				   (void **)&in_ptr[c]) ||
@@ -374,7 +385,7 @@ static void test_data_is_copied(int fd)
 	CHECK(sync != 0, "syncobj_new failed");
 
 	args.config = (struct drm_strela_binding){
-		.handle = config, .count = 80, .stride = 1,
+		.handle = config, .count = 80, .stride = 0,
 	};
 	args.out_syncobj = sync;
 	for (c = 0; c < COLS; c++) {
@@ -382,7 +393,7 @@ static void test_data_is_copied(int fd)
 			.handle = in[c], .count = N, .stride = 1,
 		};
 		args.outputs[c] = (struct drm_strela_binding){
-			.handle = out[c], .count = N, .stride = 1,
+			.handle = out[c], .count = N, .stride = 0,
 		};
 	}
 	/* Column 3 left zeroed on purpose. */
@@ -561,7 +572,7 @@ static void test_buffers_outlive_handles(int fd)
 static void test_bad_handle(int fd)
 {
 	struct drm_strela_submit args = {
-		.config = { .handle = 0xdeadbeef, .count = 80, .stride = 1 },
+		.config = { .handle = 0xdeadbeef, .count = 80, .stride = 0 },
 		.out_syncobj = syncobj_new(fd),
 	};
 	int before, after;
@@ -730,13 +741,13 @@ static void test_in_fence_bad_handle(int fd)
 	CHECK(make_buffers(fd, &config, &in, &out) == 0, "gem_new failed");
 	args.out_syncobj = syncobj_new(fd);
 	args.config = (struct drm_strela_binding){
-		.handle = config, .count = 80, .stride = 1,
+		.handle = config, .count = 80, .stride = 0,
 	};
 	args.inputs[0] = (struct drm_strela_binding){
 		.handle = in, .count = 16, .stride = 1,
 	};
 	args.outputs[0] = (struct drm_strela_binding){
-		.handle = out, .count = 16, .stride = 1,
+		.handle = out, .count = 16, .stride = 0,
 	};
 
 	CHECK(ioctl(fd, DRM_IOCTL_STRELA_SUBMIT, &args) < 0,

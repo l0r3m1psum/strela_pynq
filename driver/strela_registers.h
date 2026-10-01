@@ -52,6 +52,4 @@
 
 #define STRELA_RESET_DMA_PULSE BIT(0)
 
-#define STRELA_MKINPSIZE(stride, count) (((stride) << 16) | (stride)*(count))
-
 #endif

@@ -17,6 +17,7 @@ struct strela_job;
 struct strela_device {
 	struct drm_device drm;
 	void __iomem *base;
+	u32 irq_status;
 
 	bool is_sim;
 

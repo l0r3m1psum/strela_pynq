@@ -164,8 +164,9 @@ strela_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_para
 			// NOTE: maybe in this context it is better to use writel_relaxed
 			// and conclude with a writel at the end to flush everything.
 			writel(dma_addr + ctrl.conf_offset*STRELA_WORD_SIZE, base_addr + STRELA_REG_CONF_ADDR);
-			writel(ctrl.conf_count*STRELA_WORD_SIZE,             base_addr + STRELA_REG_CONF_SIZE);
+			writel(           ctrl.conf_count*STRELA_WORD_SIZE,  base_addr + STRELA_REG_CONF_SIZE);
 
+#define STRELA_MKINPSIZE(stride, count) (((stride) << 16) | (stride)*(count))
 			writel(dma_addr + ctrl.inp0_offset*STRELA_WORD_SIZE,                         base_addr + STRELA_REG_INP0_ADDR);
 			writel(STRELA_MKINPSIZE(ctrl.inp0_stride*STRELA_WORD_SIZE, ctrl.inp0_count), base_addr + STRELA_REG_INP0_SIZE);
 			writel(dma_addr + ctrl.inp1_offset*STRELA_WORD_SIZE,                         base_addr + STRELA_REG_INP1_ADDR);
