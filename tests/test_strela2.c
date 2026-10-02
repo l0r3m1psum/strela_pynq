@@ -376,11 +376,17 @@ static void test_data_is_copied(int fd)
 		CHECK(gem_sync(fd, in[c], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
 			0, N * STRELA_WORD_SIZE) == 0,
 			"sync(in %d) failed: %s", c, strerror(errno));
+		CHECK(gem_sync(fd, out[c], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
+			0, N * STRELA_WORD_SIZE) == 0,
+			"sync(out %d) failed: %s", c, strerror(errno));
 		/* Distinct per column, so a crossed pair fails loudly. */
 		for (i = 0; i < N; i++) {
 			in_ptr[c][i] = 0xc0ffee00u + c * 0x100u + i;
 			out_ptr[c][i] = 0xdeadbeefu;
 		}
+		CHECK(gem_sync(fd, out[c], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+			0, N * STRELA_WORD_SIZE) == 0,
+			"sync(out %d) failed: %s", c, strerror(errno));
 		CHECK(gem_sync(fd, in[c], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
 			0, N * STRELA_WORD_SIZE) == 0,
 			"sync(in %d) failed: %s", c, strerror(errno));
