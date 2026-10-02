@@ -181,6 +181,10 @@ int strela_gem_sync_ioctl(struct drm_device *drm, void *data,
 	}
 
 	if (!IS_ALIGNED(args->offset, align) || !IS_ALIGNED(args->length, align)) {
+		drm_dbg(drm, "Unalligned flush is not supported. Rounding is "
+			"not done because we could flush the part of another "
+			"allocation. A user space library should take care of "
+			"sub allocating only cache aligned buffers.");
 		ret = -EINVAL;
 		goto out;
 	}
