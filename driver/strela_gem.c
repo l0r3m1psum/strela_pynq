@@ -140,36 +140,67 @@ int strela_gem_new_ioctl(struct drm_device *drm, void *data,
 	return ret;
 }
 
+/* This uses the same design as struct dma_buf_sync
+ * https://docs.kernel.org/driver-api/dma-buf.html#c.dma_buf_sync
+ * drivers/accel/rocket/rocket_gem.c and drivers/gpu/drm/etnaviv/etnaviv_gem.c
+ * use a simlilar prep fini pattern but but with separate ioctls also their
+ * chips have MMUs so we have slightly different concerns.
+ * It is not necessary to pair PREP and FINI and make two syscall for each sync
+ * because we don't sync on dma_resv of the BO.
+ */
 int strela_gem_sync_ioctl(struct drm_device *drm, void *data,
-				 struct drm_file *file_priv)
+			  struct drm_file *file_priv)
 {
 	struct drm_strela_gem_sync *args = data;
 	struct drm_gem_dma_object *dma_obj;
 	struct drm_gem_object *obj;
+	enum dma_data_direction dir;
+	size_t align = dma_get_cache_alignment();
 	int ret = 0;
 
-	if (args->flags & ~(DRM_STRELA_SYNC_TO_DEVICE | DRM_STRELA_SYNC_FROM_DEVICE))
+	if (args->flags & ~DRM_STRELA_SYNC_VALID_FLAGS_MASK)
+		return -EINVAL;
+
+	if ((args->flags & DRM_STRELA_SYNC_RW) == DRM_STRELA_SYNC_RW)
+		dir = DMA_BIDIRECTIONAL;
+	else if (args->flags & DRM_STRELA_SYNC_WRITE)
+		dir = DMA_TO_DEVICE; /* flush */
+	else if (args->flags & DRM_STRELA_SYNC_READ)
+		dir = DMA_FROM_DEVICE; /* invalidate */
+	else
 		return -EINVAL;
 
 	obj = drm_gem_object_lookup(file_priv, args->handle);
 	if (!obj)
 		return -ENOENT;
 
+	/* TODO(Diego): this is probably not safe from overflows... */
 	if (args->offset > obj->size || args->length > obj->size - args->offset) {
 		ret = -EINVAL;
 		goto out;
 	}
 
+	if (!IS_ALIGNED(args->offset, align) || !IS_ALIGNED(args->length, align)) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	if (args->length == 0)
+		goto out;
+
 	dma_obj = to_drm_gem_dma_obj(obj);
 
-	/* Partial syncs are allowed: the DMA API lets dma_handle and size differ
-	 * from the ones used at mapping time. */
-	if (args->flags & DRM_STRELA_SYNC_TO_DEVICE)
-		dma_sync_single_for_device(drm->dev, dma_obj->dma_addr + args->offset,
-					   args->length, DMA_TO_DEVICE);
-	if (args->flags & DRM_STRELA_SYNC_FROM_DEVICE)
-		dma_sync_single_for_cpu(drm->dev, dma_obj->dma_addr + args->offset,
-					args->length, DMA_FROM_DEVICE);
+	if (args->flags & DRM_STRELA_SYNC_FINI) {
+		/* CPU is done writing/reading; give ownership to device */
+		dma_sync_single_for_device(drm->dev,
+					   dma_obj->dma_addr + args->offset,
+					   args->length, dir);
+	} else { /* DRM_STRELA_SYNC_PREP */
+		/* CPU is starting writing/reading; take ownership from device */
+		dma_sync_single_for_cpu(drm->dev,
+					dma_obj->dma_addr + args->offset,
+					args->length, dir);
+	}
 
 out:
 	drm_gem_object_put(obj);

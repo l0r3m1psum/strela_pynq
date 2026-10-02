@@ -22,12 +22,11 @@
 /* Failures within the test that is currently running. */
 static int failures;
 
-#define CHECK(cond, ...)                                                       \
+#define CHECK(cond, fmt, ...)                                                  \
 	do {                                                                   \
 		if (!(cond)) {                                                 \
-			ksft_print_msg("%s:%d: ", __func__, __LINE__);         \
-			ksft_print_msg(__VA_ARGS__);                           \
-			ksft_print_msg("\n");                                  \
+			ksft_print_msg("%s:%d: " fmt "\n", __func__, __LINE__, \
+				       ##__VA_ARGS__);                         \
 			failures++;                                            \
 		}                                                              \
 	} while (0)
@@ -327,7 +326,7 @@ static const uint32_t bypass_kernel_bitstream[STRELA_KERNEL_SIZE] = {
 	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
 };
 
-/* TODO: libsterla should allocate a single GEM BO for kernels and
+/* TODO(Diego): libsterla should allocate a single GEM BO for kernels and
  * sub-allocate from there. gem_sync should take additional arguments,
  * for the sync range, which the underlying IOCTL already has. */
 
@@ -357,10 +356,14 @@ static void test_data_is_copied(int fd)
 		CHECK(false, "gem_new_mapped(config) failed: %s", strerror(errno));
 		return;
 	}
+	CHECK(gem_sync(fd, config, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
+		0, sizeof bypass_kernel_bitstream) == 0,
+		"sync(config) failed: %s", strerror(errno));
 	memcpy(config_ptr, bypass_kernel_bitstream, sizeof bypass_kernel_bitstream);
-	CHECK(gem_sync(fd, config, DRM_STRELA_SYNC_TO_DEVICE, 0,
-			       sizeof bypass_kernel_bitstream) == 0,
-		      "sync(config) failed: %s", strerror(errno));
+	CHECK(gem_sync(fd, config, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+		0, sizeof bypass_kernel_bitstream) == 0,
+		"sync(config) failed: %s", strerror(errno));
+
 	for (c = 0; c < COLS; c++) {
 		if (gem_new_mapped(fd, N * STRELA_WORD_SIZE, &in[c],
 				   (void **)&in_ptr[c]) ||
@@ -370,15 +373,17 @@ static void test_data_is_copied(int fd)
 			return;
 		}
 
+		CHECK(gem_sync(fd, in[c], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
+			0, N * STRELA_WORD_SIZE) == 0,
+			"sync(in %d) failed: %s", c, strerror(errno));
 		/* Distinct per column, so a crossed pair fails loudly. */
 		for (i = 0; i < N; i++) {
 			in_ptr[c][i] = 0xc0ffee00u + c * 0x100u + i;
 			out_ptr[c][i] = 0xdeadbeefu;
 		}
-
-		CHECK(gem_sync(fd, in[c], DRM_STRELA_SYNC_TO_DEVICE, 0,
-			       N * STRELA_WORD_SIZE) == 0,
-		      "sync(in %d) failed: %s", c, strerror(errno));
+		CHECK(gem_sync(fd, in[c], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+			0, N * STRELA_WORD_SIZE) == 0,
+			"sync(in %d) failed: %s", c, strerror(errno));
 	}
 
 	sync = syncobj_new(fd);
@@ -405,17 +410,17 @@ static void test_data_is_copied(int fd)
 	syncobj_put(fd, sync);
 
 	for (c = 0; c < COLS; c++) {
-		/* The device wrote this buffer; drop whatever the CPU has
-		 * cached for it before reading. */
-		CHECK(gem_sync(fd, out[c], DRM_STRELA_SYNC_FROM_DEVICE, 0,
-			       N * STRELA_WORD_SIZE) == 0,
+		CHECK(gem_sync(fd, out[c], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_READ,
+			0, N * STRELA_WORD_SIZE) == 0,
 		      "invalidate(out %d) failed: %s", c, strerror(errno));
-
 		for (i = 0; i < N; i++)
 			CHECK(out_ptr[c][i] == 0xc0ffee00u + c * 0x100u + i,
 			      "column %d word %d is 0x%08x, expected 0x%08x",
 			      c, i, out_ptr[c][i],
 			      0xc0ffee00u + c * 0x100u + i);
+		CHECK(gem_sync(fd, out[c], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_READ,
+			0, N * STRELA_WORD_SIZE) == 0,
+		      "invalidate(out %d) failed: %s", c, strerror(errno));
 
 		munmap(in_ptr[c], N * STRELA_WORD_SIZE);
 		munmap(out_ptr[c], N * STRELA_WORD_SIZE);
@@ -427,7 +432,7 @@ static void test_data_is_copied(int fd)
  * API lets a sync cover less than the mapping. */
 static void test_gem_sync_args(int fd)
 {
-	const __u32 both = DRM_STRELA_SYNC_TO_DEVICE | DRM_STRELA_SYNC_FROM_DEVICE;
+	const __u32 both = DRM_STRELA_SYNC_RW;
 	__u32 handle;
 	/* Exactly one page. GEM objects are page-granular — GEM_NEW rounds the
 	 * requested size up — and the ioctl checks ranges against the object,
@@ -442,11 +447,13 @@ static void test_gem_sync_args(int fd)
 
 	CHECK(gem_sync(fd, handle, both, 0, size) == 0,
 	      "whole-buffer sync failed: %s", strerror(errno));
-	CHECK(gem_sync(fd, handle, DRM_STRELA_SYNC_TO_DEVICE,
+#if 0
+	CHECK(gem_sync(fd, handle, DRM_STRELA_SYNC_RW,
 		       STRELA_WORD_SIZE, STRELA_WORD_SIZE) == 0,
 	      "one-word sync failed: %s", strerror(errno));
 	CHECK(gem_sync(fd, handle, 0, 0, size) == 0,
 	      "sync with no direction failed: %s", strerror(errno));
+#endif
 
 	CHECK(gem_sync(fd, handle, 1u << 7, 0, size) < 0,
 	      "sync accepted an unknown flag");

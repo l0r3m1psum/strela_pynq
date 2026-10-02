@@ -34,13 +34,19 @@ struct drm_strela_gem_new {
 	__u64 offset;   /* out: mmap offset */
 };
 
-#define DRM_STRELA_SYNC_TO_DEVICE   (1u << 0) /* flush */
-#define DRM_STRELA_SYNC_FROM_DEVICE (1u << 1) /* invalidate */
+/* Taken from include/uapi/linux/dma-buf.h */
+#define DRM_STRELA_SYNC_READ  (1 << 0)
+#define DRM_STRELA_SYNC_WRITE (2 << 0)
+#define DRM_STRELA_SYNC_RW    (DRM_STRELA_SYNC_READ | DRM_STRELA_SYNC_WRITE)
+#define DRM_STRELA_SYNC_PREP  (0 << 2)
+#define DRM_STRELA_SYNC_FINI  (1 << 2)
 
-/* Cache maintenance for a range of a buffer object. */
+#define DRM_STRELA_SYNC_VALID_FLAGS_MASK \
+	(DRM_STRELA_SYNC_RW | DRM_STRELA_SYNC_FINI)
+
 struct drm_strela_gem_sync {
 	__u32 handle;
-	__u32 flags;    /* DRM_STRELA_SYNC_* */
+	__u32 flags;
 	__u64 offset;
 	__u64 length;
 };
@@ -50,7 +56,7 @@ struct drm_strela_binding {
 	__u32 handle;
 	__u32 offset;
 	__u32 count;
-	__u32 stride;   /* inputs only; outputs must pass 1 */
+	__u32 stride;   /* inputs only; outputs and config must pass 0 */
 };
 
 /* Wait for in_syncobj before running the job. Without this flag the field is
