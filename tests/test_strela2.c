@@ -267,35 +267,6 @@ static __u32 submit(int fd, __u32 config, __u32 in_handle, __u32 out_handle)
 	return sync;
 }
 
-/* Buffers big enough for the bindings above. */
-static int make_buffers(int fd, __u32 *config, __u32 *in, __u32 *out)
-{
-	if (gem_new(fd, 80 * STRELA_WORD_SIZE, config) ||
-	    gem_new(fd, 16 * STRELA_WORD_SIZE, in) ||
-	    gem_new(fd, 16 * STRELA_WORD_SIZE, out))
-		return -1;
-	return 0;
-}
-
-/* ------------------------------------------------------------------------- */
-
-/* A job runs to completion and its fence signals. */
-static void test_single_job(int fd)
-{
-	__u32 config, in, out, sync;
-
-	CHECK(make_buffers(fd, &config, &in, &out) == 0, "gem_new failed: %s",
-	      strerror(errno));
-
-	sync = submit(fd, config, in, out);
-	CHECK(sync != 0, "submit failed: %s", strerror(errno));
-	if (!sync)
-		return;
-
-	CHECK(syncobj_wait(fd, sync, 2000), "fence never signalled");
-	syncobj_put(fd, sync);
-}
-
 enum {
 	STRELA_PE_ROWS = 4,
 	STRELA_PE_COLS = 4,
@@ -325,6 +296,46 @@ static const uint32_t bypass_kernel_bitstream[STRELA_KERNEL_SIZE] = {
 	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
 	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
 };
+
+/* Buffers big enough for the bindings above. */
+static int make_buffers(int fd, __u32 *config, __u32 *in, __u32 *out)
+{
+	uint32_t *config_ptr;
+
+	if (gem_new_mapped(fd, 80 * STRELA_WORD_SIZE, config, (void **)&config_ptr) ||
+	    gem_new(fd, 16 * STRELA_WORD_SIZE, in) ||
+	    gem_new(fd, 16 * STRELA_WORD_SIZE, out))
+		return -1;
+
+	/* We have to configure the fabric to avoid the CGRA timing out. */
+	CHECK(gem_sync(fd, *config, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
+		0, sizeof bypass_kernel_bitstream) == 0,
+		"sync(config) failed: %s", strerror(errno));
+	memcpy(config_ptr, bypass_kernel_bitstream, sizeof bypass_kernel_bitstream);
+	CHECK(gem_sync(fd, *config, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+		0, sizeof bypass_kernel_bitstream) == 0,
+		"sync(config) failed: %s", strerror(errno));
+	return 0;
+}
+
+/* ------------------------------------------------------------------------- */
+
+/* A job runs to completion and its fence signals. */
+static void test_single_job(int fd)
+{
+	__u32 config, in, out, sync;
+
+	CHECK(make_buffers(fd, &config, &in, &out) == 0, "gem_new failed: %s",
+	      strerror(errno));
+
+	sync = submit(fd, config, in, out);
+	CHECK(sync != 0, "submit failed: %s", strerror(errno));
+	if (!sync)
+		return;
+
+	CHECK(syncobj_wait(fd, sync, 2000), "fence never signalled");
+	syncobj_put(fd, sync);
+}
 
 /* TODO(Diego): libsterla should allocate a single GEM BO for kernels and
  * sub-allocate from there. gem_sync should take additional arguments,

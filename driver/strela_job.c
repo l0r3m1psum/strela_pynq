@@ -128,6 +128,12 @@ static enum drm_gpu_sched_stat strela_timedout_job(struct drm_sched_job *base)
 	unsigned long flags;
 	bool was_active;
 
+	/* Signalling the fence below releases the credit, so park the scheduler
+	 * first. A queued job that started before drm_sched_stop() would have
+	 * its hardware fence dropped there, be finished with -ECANCELED by
+	 * drm_sched_start() and freed while it is still sdev->active. */
+	drm_sched_wqueue_stop(&sdev->sched);
+
 	spin_lock_irqsave(&sdev->lock, flags);
 	was_active = sdev->active == job;
 	if (was_active)

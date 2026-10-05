@@ -53,6 +53,11 @@ BEGIN {
 /^\t{0,1}\};$/           { pop_if_lt(3);  next }
 /^\t*$/                  { next }
                          { check_eq(2);
+    # /fpga-full has its own ranges and compatible in the base tree, and the
+    # kernel warns about every property an overlay sets on an existing node.
+    if (match($0, /^\t\tranges;$/) || match($0, /^\t\tcompatible = "simple-bus";$/)) {
+        next
+    }
     # This should only work after having matched /^\t\tafi0.*{$/
     if (match($0, /^\t\t\tcompatible = "xlnx,afi-fpga";$/)) {
         print "\t\t\t\tcompatible = \"xlnx,zynq-afi-fpga\";"
