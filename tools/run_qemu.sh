@@ -46,12 +46,13 @@ if [ "$arch" = arm ]; then
 		-kernel "$kernel" \
 		-dtb "$dtb" \
 		-initrd "$initramfs" \
-		-append "console=ttyPS0,115200 earlyprintk rdinit=/init panic=1" \
+		-append "console=ttyPS0,115200 earlyprintk rdinit=/init panic=1 panic_on_warn=1 oops=panic quiet" \
 		< /dev/null | tee "$out/console.log"
 else
 	[ "$accel" = kvm ] && cpu=host || cpu=max
 	timeout 180 $qemu \
 		-M q35 \
+		-nodefaults \
 		-accel $accel \
 		-cpu $cpu \
 		-m 512 \
@@ -60,44 +61,30 @@ else
 		-no-reboot \
 		-kernel "$kernel" \
 		-initrd "$initramfs" \
-		-append "console=ttyS0 rdinit=/init panic=1" \
+		-append "console=ttyS0 rdinit=/init panic=1 panic_on_warn=1 oops=panic quiet" \
 		< /dev/null | tee "$out/console.log"
 fi
 
 echo
 
-# Both the userspace tests and KUnit emit TAP, but KUnit's goes through the
-# kernel log, so it carries a "[    2.345678] " prefix wherever printk
-# timestamps are on and none where they are not. Judging the raw log therefore
-# gave the two targets different totals for the same tests — and, worse, let a
-# KUnit failure pass unnoticed on whichever target had the prefix. Strip it and
-# treat both the same.
-sed -E 's/^\[[ ]*[0-9]+\.[0-9]+\] //' "$out/console.log" > "$out/tap.log"
-
-# A kernel splat fails the run even when every test says ok. The driver's
-# calling contracts are WARN_ON and lockdep assertions, and a WARN prints
-# without failing anything by itself — so without this they catch nothing.
-#
-# One exception, an upstream false positive: dma_alloc_pages() users never call
-# dma_mapping_error(), so the debug entry stays MAP_ERR_NOT_CHECKED and
-# check_unmap() complains on every free.
-splat=$(grep -E '^(WARNING:|BUG:|Kernel panic)' "$out/tap.log" |
-	grep -v 'check_unmap' || true)
-if [ -n "$splat" ]; then
-	echo "$splat" >&2
-	echo "FAIL: kernel splat (full log: $out/console.log)" >&2
-	exit 1
+# panic_on_warn stops the VM at the first kernel warning, so a splat is the last
+# thing on the console and qemu_init never reports. KUnit's results only reach
+# the kernel log, with a timestamp in front wherever printk has them on.
+ts='^(\[[ 0-9.]*\] )?'
+if grep -q "qemu_init: tests exited 0" "$out/console.log" &&
+   ! grep -Eq "$ts *not ok " "$out/console.log"; then
+	grep -Ec "${ts}ok " "$out/console.log" | sed 's/^/passed: /'
+	echo "PASS (full log: $out/console.log)"
+	exit 0
 fi
 
-# Anything not ok, or tests that did not run to completion, is a failure.
-if grep -q '^not ok' "$out/tap.log"; then
-	grep '^not ok' "$out/tap.log" >&2
-	echo "FAIL (full log: $out/console.log)" >&2
-	exit 1
-fi
-if ! grep -q "qemu_init: tests exited 0" "$out/console.log"; then
-	echo "FAIL: tests did not complete (full log: $out/console.log)" >&2
-	exit 1
-fi
-grep -c '^ok' "$out/tap.log" | sed 's/^/passed: /'
-echo "PASS (full log: $out/console.log)"
+{
+	echo "==================== test output ===================="
+	grep -E "$ts *(#|not ok) " "$out/console.log" || true
+	echo
+	echo "==================== end of the console ===================="
+	tail -n 80 "$out/console.log"
+	echo
+	echo "FAIL (full log: $out/console.log)"
+} >&2
+exit 1

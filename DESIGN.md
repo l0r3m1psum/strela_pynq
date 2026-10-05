@@ -186,6 +186,14 @@ Two rules that cost real debugging time:
   Returning `NOMINAL` without that dance leaks the job and every buffer it
   references. Failing the fence first is what makes the error reach userspace as
   `-ETIMEDOUT` rather than the scheduler's `-ECANCELED`.
+- **`timedout_job()` parks the scheduler before it signals.** Signalling the
+  fence releases the credit, so a queued job can be started before
+  `drm_sched_stop()` runs. `drm_sched_stop()` then drops that job's hardware
+  fence, and `drm_sched_start()` finishes it with `-ECANCELED` and frees it
+  while it is still `sdev->active`: the next `run_job()` trips its
+  `drm_WARN_ON`, and if there is no next job, `strela_drain()` dereferences the
+  freed job at removal. This happened on the board. Calling
+  `drm_sched_wqueue_stop()` first closes the gap and keeps the `-ETIMEDOUT`.
 - **The submit workqueue is the driver's, not the scheduler's.**
   `drm_sched_fini()` *cancels* pending work rather than running it, so jobs
   waiting to be freed would leak at removal. Owning the workqueue lets
@@ -225,8 +233,17 @@ different values reload the module — see section 5.
   sets `dying` under the lock, resets the hardware and fails the fence of the job
   that was executing. Queued jobs are the scheduler's problem: entities are
   destroyed at `postclose`, and the module cannot be unloaded while a file is
-  open. Removal then flushes the submit workqueue, calls `drm_sched_fini()` and
-  destroys the workqueue, in that order (see D4).
+  open. Removal then waits for the timeout handler, flushes the submit
+  workqueue, calls `drm_sched_fini()` and destroys the workqueue, in that order
+  (see D4).
+- **Removal waits for a running timeout handler first.** `timedout_job()` ends
+  with `drm_sched_start()`, which restarts the scheduler's work items. If that
+  lands after `drm_sched_fini()` has stopped them, one runs once the run-queues
+  are freed and dereferences NULL in `drm_sched_run_job_work()`. Userspace gets
+  there easily: the fence is signalled from inside the handler, so a process
+  that exits on it lets `rmmod` start while the handler is still running. The
+  timeout suite hit this under QEMU. `strela_device_fini()` therefore starts
+  with `cancel_delayed_work_sync()` on the scheduler's `work_tdr`.
 
 ### D8 — Binding validation is a pure function
 `strela_binding_check()` takes a size and a binding and returns 0 or `-EINVAL`,
@@ -330,7 +347,8 @@ interrupts testable without an FPGA — including the whole IREE stack.
   `sdev->lock`.
 - Never free GEM objects or DMA memory from the completion interrupt (D7).
 - `sdev->active` is set by `run_job()` and cleared by whoever finishes the job:
-  the interrupt, the timeout, or the drain.
+  the interrupt, the timeout, or the drain. Nothing else may finish a job that
+  has started; the scheduler cancelling one is the first race in D4.
 - `job->phase` is only meaningful while the job is active.
 
 ---

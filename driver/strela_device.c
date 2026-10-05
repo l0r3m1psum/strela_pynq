@@ -65,6 +65,11 @@ int strela_device_init(struct strela_device *sdev, struct platform_device *pdev)
  * would take their buffers with them. See the comment on sched_wq. */
 void strela_device_fini(struct strela_device *sdev)
 {
+	/* A timeout handler that is still running ends by restarting the
+	 * scheduler's work items, which would undo drm_sched_fini() stopping
+	 * them and leave one to run on a torn-down scheduler. Let it finish. */
+	cancel_delayed_work_sync(&sdev->sched.work_tdr);
+
 	flush_workqueue(sdev->sched_wq);
 	drm_sched_fini(&sdev->sched);
 	destroy_workqueue(sdev->sched_wq);

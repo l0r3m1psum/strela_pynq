@@ -107,6 +107,16 @@ static struct drm_gem_dma_object *strela_gem_create(struct drm_device *drm,
 		goto err_release;
 	}
 
+	/* dma-debug records the allocation as a mapping, and at free time warns
+	 * that nobody checked it for an error. Newer kernels exempt allocations;
+	 * until then, check. This should never fire in practice... */
+	if (dma_mapping_error(drm->dev, dma_obj->dma_addr)) {
+		dma_free_noncoherent(drm->dev, size, dma_obj->vaddr,
+				     dma_obj->dma_addr, DMA_BIDIRECTIONAL);
+		ret = -ENOMEM;
+		goto err_release;
+	}
+
 	return dma_obj;
 
 err_release:

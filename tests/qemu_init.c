@@ -10,6 +10,7 @@
 
 #include <fcntl.h>
 #include <stdio.h>
+#include <sys/klog.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/syscall.h>
@@ -97,6 +98,10 @@ int main(void)
 	mount("proc", "/proc", "proc", 0, NULL);
 	mount("sysfs", "/sys", "sysfs", 0, NULL);
 	mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
+
+	/* The kernel is booted with "quiet" to keep its boot off the console;
+	 * from here on everything is wanted, KUnit's results included. */
+	klogctl(8 /* SYSLOG_ACTION_CONSOLE_LEVEL */, NULL, 7);
 
 	for (i = 0; i < sizeof rounds / sizeof *rounds; i++) {
 		int ret;
