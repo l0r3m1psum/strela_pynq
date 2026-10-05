@@ -247,10 +247,6 @@ static void strela_sim_work(struct work_struct *work)
 		return;
 	strela_job_phase_done(sdev, STRELA_JOB_PHASE_CONFIG);
 
-	/* TODO: move at driver probe... */
-	drm_warn(&sdev->drm,
-		 "simulated job: the CGRA is not modelled; each enabled column is copied input to output\n");
-
 	slice_us = strela_sim_phase_us(STRELA_JOB_PHASE_EXEC) / STRELA_NUM_IO_COLS;
 	for (i = 0; i < STRELA_NUM_IO_COLS; i++) {
 		/* On real hardware columns do DMA in parallel bu this is good enough. */

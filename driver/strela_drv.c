@@ -181,6 +181,9 @@ static int __init strela_sim_dev_register(void)
 {
 	int i;
 
+	pr_warn("The CGRA is not modelled; each enabled column is copied input "
+		"to output\n");
+
 	for (i = 0; i < sim_dev_count && i < STRELA_MAX_SIM_DEVS; i++) {
 		strela_sim_pdevs[i] = platform_device_register_simple("strela", i,
 								     NULL, 0);
@@ -199,6 +202,12 @@ static int __init strela_sim_dev_register(void)
 static int __init strela_init(void)
 {
 	int ret;
+
+	if (!IS_ENABLED(CONFIG_FPGA_MGR_ZYNQ_AFI_FPGA)) {
+		pr_warn("The Pynq AFI bridge driver has not been compiled with"
+			"the kernel you may need to manually configure some AXI"
+			" FIFO Interface registers.");
+	}
 
 	ret = platform_driver_register(&strela_platform_driver);
 	if (ret)
