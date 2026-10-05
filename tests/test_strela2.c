@@ -508,7 +508,7 @@ static void test_submit_is_async(int fd)
 }
 
 /* A job the hardware never finishes must not hang the driver: the timeout work
- * fails the fence with -ETIMEDOUT, and the queue keeps moving. */
+ * fails the fence (with -ECANCELED), and the queue keeps moving. */
 static void test_timeout(int fd)
 {
 	__u32 config, in, out, sync, next;
@@ -866,8 +866,8 @@ static void test_in_fence_bad_handle(int fd)
 }
 
 /* Leaves jobs queued on purpose and returns without waiting for them. The
- * module is unloaded right after this suite, so the driver's drain and the
- * scheduler's teardown have to fail them: the harness fails the run if that
+ * module is unloaded right after this suite, so removal has to stop the one
+ * on the device and free what was started: the harness fails the run if that
  * path warns, hangs or leaks. */
 static void test_leave_work_queued(int fd)
 {

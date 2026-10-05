@@ -56,7 +56,8 @@ static inline struct strela_job *to_strela_job(struct drm_sched_job *base)
 	return container_of(base, struct strela_job, base);
 }
 
-extern const struct drm_sched_backend_ops strela_sched_ops;
+int strela_job_init(struct strela_device *sdev);
+void strela_job_fini(struct strela_device *sdev);
 
 void strela_job_phase_done(struct strela_device *sdev,
 			   enum strela_job_phase finished_phase);

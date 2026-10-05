@@ -26,7 +26,7 @@
 
 /* Module parameters are fixed at load time, so each group of tests gets the
  * module loaded the way it needs it. Reloading between rounds also exercises
- * the unload path, including the drain of whatever the round left queued. */
+ * the unload path, including retiring whatever the round left queued. */
 static const struct {
 	const char *suite;
 	const char *args;
@@ -119,7 +119,7 @@ int main(void)
 		if (ret)
 			worst = ret;
 
-		/* Unloading is a test of its own: the drain must fail whatever
+		/* Unloading is a test of its own: removal must retire whatever
 		 * the round left queued, without warning or hanging. */
 		if (syscall(SYS_delete_module, MODULE_NAME, O_NONBLOCK)) {
 			perror("delete_module");

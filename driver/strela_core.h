@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* The CGRA itself: registers, interrupt, and the simulated stand-in.
  *
- * Everything here is the backend a job runs on. strela_device.c owns the
+ * Everything here is the backend a job runs on. strela_drv.c owns the
  * device's lifetime, strela_job.c owns what runs; this file owns how. */
 #ifndef STRELA_CORE_H
 #define STRELA_CORE_H

@@ -225,9 +225,9 @@ static void strela_sim_bypass_column(struct strela_device *sdev,
 
 /* The simulated device, running one whole job: configure, then execute.
  *
- * Safe to keep using `job` after the unlock because a job is only freed once
- * its fence is signalled, and every path that signals one out from under us
- * calls strela_hw_stop() first. */
+ * Safe to keep using `job` after the unlock: nothing frees a job that is still
+ * on the device without calling strela_hw_stop() first, and that waits for
+ * this worker. */
 static void strela_sim_work(struct work_struct *work)
 {
 	struct strela_device *sdev =

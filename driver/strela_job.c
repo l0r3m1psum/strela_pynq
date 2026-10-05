@@ -43,7 +43,6 @@ static void strela_job_put_bindings(struct strela_job *job)
 void strela_job_phase_done(struct strela_device *sdev,
 				  enum strela_job_phase finished_phase)
 {
-	struct strela_job *done = NULL;
 	unsigned long flags;
 
 	spin_lock_irqsave(&sdev->lock, flags);
@@ -62,18 +61,18 @@ void strela_job_phase_done(struct strela_device *sdev,
 		strela_hw_start(sdev, STRELA_JOB_PHASE_EXEC);
 		break;
 	case STRELA_JOB_PHASE_EXEC:
-		done = sdev->active;
+		/* TODO: post-sync (invalidate) the ranges the job wrote before
+		 * telling anyone it is finished.
+		 *
+		 * Signalled with the lock still held (it is the fence's lock
+		 * too), so whoever takes it next cannot find this job half
+		 * finished. */
+		dma_fence_signal_locked(sdev->active->hw_fence);
 		sdev->active = NULL;
 		break;
 	}
 
 	spin_unlock_irqrestore(&sdev->lock, flags);
-
-	if (done) {
-		/* TODO: post-sync (invalidate) the ranges the job wrote before
-		 * telling anyone it is finished. */
-		dma_fence_signal(done->hw_fence);
-	}
 }
 
 static const char *strela_fence_driver_name(struct dma_fence *fence)
@@ -98,10 +97,6 @@ static struct dma_fence *strela_run_job(struct drm_sched_job *base)
 	unsigned long flags;
 
 	spin_lock_irqsave(&sdev->lock, flags);
-	if (sdev->dying) {
-		spin_unlock_irqrestore(&sdev->lock, flags);
-		return ERR_PTR(-ENODEV);
-	}
 
 	/* The scheduler must not hand us a second job while one is on the device. */
 	drm_WARN_ON(&sdev->drm, sdev->active);
@@ -121,39 +116,31 @@ static struct dma_fence *strela_run_job(struct drm_sched_job *base)
 	return dma_fence_get(job->hw_fence);
 }
 
+/* Take whatever is on the device off it. The job itself is the caller's to
+ * finish: nothing here signals a fence. */
+static void strela_job_abort(struct strela_device *sdev)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&sdev->lock, flags);
+	sdev->active = NULL;
+	spin_unlock_irqrestore(&sdev->lock, flags);
+
+	strela_hw_stop(sdev);
+}
+
+/* Stop, reset, start, in that order. drm_sched_stop() parks the scheduler and
+ * drops the hung job's hardware fence; drm_sched_start() then finishes the job
+ * with -ECANCELED and lets it be freed. */
 static enum drm_gpu_sched_stat strela_timedout_job(struct drm_sched_job *base)
 {
 	struct strela_job *job = to_strela_job(base);
 	struct strela_device *sdev = job->sdev;
-	unsigned long flags;
-	bool was_active;
 
-	/* Signalling the fence below releases the credit, so park the scheduler
-	 * first. A queued job that started before drm_sched_stop() would have
-	 * its hardware fence dropped there, be finished with -ECANCELED by
-	 * drm_sched_start() and freed while it is still sdev->active. */
-	drm_sched_wqueue_stop(&sdev->sched);
+	drm_err(&sdev->drm, "job %llu timed out\n", job->hw_fence->seqno);
 
-	spin_lock_irqsave(&sdev->lock, flags);
-	was_active = sdev->active == job;
-	if (was_active)
-		sdev->active = NULL;
-	spin_unlock_irqrestore(&sdev->lock, flags);
-
-	if (was_active) {
-		strela_hw_stop(sdev);
-		drm_err(&sdev->drm, "job %llu timed out\n", job->hw_fence->seqno);
-		dma_fence_set_error(job->hw_fence, -ETIMEDOUT);
-		dma_fence_signal(job->hw_fence);
-	}
-
-	/* The scheduler has already taken this job off its pending list, so the
- 	 * stop/start pair is not optional. drm_sched_stop() puts it back,
- 	 * notices the fence has signalled, and arranges for the job to be
- 	 * freed. Failing the fence first is what makes the error reach
- 	 * userspace as -ETIMEDOUT rather than the -ECANCELED the scheduler
- 	 * would use. */
 	drm_sched_stop(&sdev->sched, base);
+	strela_job_abort(sdev);
 	drm_sched_start(&sdev->sched);
 
 	return DRM_GPU_SCHED_STAT_NOMINAL;
@@ -169,11 +156,50 @@ static void strela_free_job(struct drm_sched_job *base)
 	kfree(job);
 }
 
-const struct drm_sched_backend_ops strela_sched_ops = {
+static const struct drm_sched_backend_ops strela_sched_ops = {
 	.run_job = strela_run_job,
 	.timedout_job = strela_timedout_job,
 	.free_job = strela_free_job,
 };
+
+/* One run-queue and one credit: a single engine that runs jobs in order, one
+ * at a time, because a single CTRL register cannot be pipelined. */
+int strela_job_init(struct strela_device *sdev)
+{
+	return drm_sched_init(&sdev->sched, &strela_sched_ops,
+			      /*submit_wq=*/NULL, /*num_rqs=*/1, /*credit_limit=*/1,
+			      /*hang_limit=*/0,
+			      msecs_to_jiffies(STRELA_JOB_TIMEOUT_MS),
+			      /*timeout_wq=*/NULL, /*score=*/NULL,
+			      "strela", sdev->drm.dev);
+}
+
+void strela_job_fini(struct strela_device *sdev)
+{
+	struct drm_sched_job *base, *tmp;
+
+	/* A timeout handler that is still running ends by restarting the
+	 * scheduler's work items, which would undo drm_sched_fini() stopping
+	 * them and leave one to run on a torn-down scheduler. Let it finish. */
+	cancel_delayed_work_sync(&sdev->sched.work_tdr);
+
+	drm_sched_fini(&sdev->sched);
+	strela_job_abort(sdev);
+
+	/* drm_sched_fini() leaves the jobs that were started on its pending
+	 * list: at most one unfinished, the rest waiting to be freed. Newer
+	 * kernels hand them to a .cancel_job callback instead. */
+	list_for_each_entry_safe(base, tmp, &sdev->sched.pending_list, list) {
+		struct strela_job *job = to_strela_job(base);
+
+		list_del_init(&base->list);
+		if (!dma_fence_is_signaled(job->hw_fence)) {
+			dma_fence_set_error(job->hw_fence, -ENODEV);
+			dma_fence_signal(job->hw_fence);
+		}
+		strela_free_job(base);
+	}
+}
 
 /* Does a binding fit its buffer and the hardware's registers?
  * Returns 0 or a negative errno.

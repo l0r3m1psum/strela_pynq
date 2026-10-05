@@ -58,22 +58,23 @@ char-device APIs; `drm_sched` in particular changes shape between releases.
 ### Source layout
 
 Split the way `drivers/accel/rocket` is, with the same file names, so that the
-shape is familiar to anyone who has read another accel driver:
+shape is familiar to anyone who has read another accel driver. The one file
+rocket has and this driver does not is `rocket_device.c`: there it creates the
+DRM device shared by three cores, which here is a few lines of `strela_probe()`.
 
 | File | Owns |
 |---|---|
 | `strela_drv.c` | the `drm_driver`, the ioctl table, platform glue, module init, the simulated platform devices |
-| `strela_device.c` | `struct strela_device`: bringing the scheduler up and taking it down |
 | `strela_core.c` | the CGRA itself: register programming, the interrupt, the simulated stand-in |
-| `strela_job.c` | validating a submit, the `drm_sched` backend, fences, the KUnit tests |
+| `strela_job.c` | validating a submit, the `drm_sched` backend and its init/fini, fences, the KUnit tests |
 | `strela_gem.c` | buffer objects: allocation, freeing, `GEM_NEW` and `GEM_SYNC` |
 | `strela_registers.h` | register offsets and bits |
 
 Rocket splits `rocket_device.c` from `rocket_core.c` because an RK3588 has three
-NPU cores behind one device node. STRELA has one CGRA per device, so the split
-here is by *lifetime versus behaviour* rather than by count: `strela_device.c`
-is what exists, `strela_core.c` is what it does. If the second CGRA in the block
-design is ever exposed (§7 Q7), rocket's meaning of the split becomes ours too.
+NPU cores behind one device node. STRELA has one CGRA per device, so there is
+nothing to split: `struct strela_device` (in `strela_device.h`) is both. If the
+second CGRA in the block design is ever exposed behind one node (§7 Q7),
+rocket's split becomes ours too.
 
 `driver/Kconfig` and `driver/Makefile` are in-tree form. Out of tree,
 `CONFIG_DRM_ACCEL_STRELA=m` has to be passed on the make command line, since
@@ -151,11 +152,13 @@ Consequences that the code depends on:
 
 - **The fence borrows `sdev->lock`** (passed to `dma_fence_init`). So
   `dma_fence_signal()` takes that lock internally and must never be called while
-  holding it — hence the "decide under the lock, signal after unlocking" shape of
-  `strela_job_phase_done()`.
-- **Every job must signal exactly once**, including failures. A timeout signals
-  with `-ETIMEDOUT`, removal with `-ENODEV`. A fence that never signals hangs
-  every waiter and breaks the dma-fence contract.
+  holding it. `strela_job_phase_done()` already holds it, and uses
+  `dma_fence_signal_locked()`: completing a job and clearing `sdev->active` are
+  one step, so nobody can find a job half finished.
+- **Every job a client can wait on must signal exactly once**, including
+  failures. A timeout ends with `-ECANCELED` (the scheduler's doing, see D4),
+  removal with `-ENODEV`. A fence that never signals hangs every waiter and
+  breaks the dma-fence contract.
 - **One fence context per device** (`dma_fence_context_alloc`), because the queue
   is per-device and strictly ordered. Two devices are unordered with respect to
   each other, which is correct.
@@ -180,24 +183,22 @@ Two rules that cost real debugging time:
   scheduler still holds a reference to it when `free_job()` frees the job, so an
   embedded fence is a use-after-free. With no `release` op, the last put frees
   the allocation through `dma_fence_free()`. This is the same shape lima uses.
-- **`timedout_job()` must call `drm_sched_stop()` and `drm_sched_start()`.** The
-  scheduler removes the job from its pending list *before* calling the driver,
-  and `drm_sched_stop()` is what puts it back and arranges for it to be freed.
-  Returning `NOMINAL` without that dance leaks the job and every buffer it
-  references. Failing the fence first is what makes the error reach userspace as
-  `-ETIMEDOUT` rather than the scheduler's `-ECANCELED`.
-- **`timedout_job()` parks the scheduler before it signals.** Signalling the
-  fence releases the credit, so a queued job can be started before
-  `drm_sched_stop()` runs. `drm_sched_stop()` then drops that job's hardware
-  fence, and `drm_sched_start()` finishes it with `-ECANCELED` and frees it
-  while it is still `sdev->active`: the next `run_job()` trips its
-  `drm_WARN_ON`, and if there is no next job, `strela_drain()` dereferences the
-  freed job at removal. This happened on the board. Calling
-  `drm_sched_wqueue_stop()` first closes the gap and keeps the `-ETIMEDOUT`.
-- **The submit workqueue is the driver's, not the scheduler's.**
-  `drm_sched_fini()` *cancels* pending work rather than running it, so jobs
-  waiting to be freed would leak at removal. Owning the workqueue lets
-  `strela_remove()` flush it first.
+- **`timedout_job()` is stop, reset, start, in that order**, as in rocket. The
+  scheduler removes the job from its pending list *before* calling the driver;
+  `drm_sched_stop()` puts it back, parks the scheduler's work items and drops
+  the hung job's hardware fence. The driver then takes the job off the device
+  (`strela_job_abort()`), and `drm_sched_start()` finishes it with `-ECANCELED`
+  and lets it be freed. The driver signals nothing itself.
+- **Why not signal the fence first, to report `-ETIMEDOUT`?** An earlier version
+  did. Signalling releases the credit, so a queued job could be started before
+  `drm_sched_stop()` ran; `drm_sched_stop()` then dropped that job's hardware
+  fence and `drm_sched_start()` cancelled and freed it while it was still
+  `sdev->active`. The next `run_job()` tripped its `drm_WARN_ON`, and with no
+  next job, removal dereferenced the freed job. This happened on the board. With
+  stop first there is no gap for a job to start in.
+- **A photo finish can cost the next job.** If a job completes in the instant
+  its timeout fires and the next one has already started, the reset takes that
+  one down and it is cancelled. State stays consistent; rocket behaves the same.
 
 A fixed-size ring was considered before this and rejected: a ring's usual
 advantage is reusing preallocated slots, but a job's fence must outlive its slot,
@@ -229,21 +230,26 @@ different values reload the module — see section 5.
   real bug, caught by `CONFIG_PROVE_LOCKING` before the scheduler existed here;
   `free_job()` now runs on the scheduler's workqueue, which is process context,
   so the rule is satisfied by construction.
-- **`strela_remove()` drains what the scheduler cannot see.** `strela_drain()`
-  sets `dying` under the lock, resets the hardware and fails the fence of the job
-  that was executing. Queued jobs are the scheduler's problem: entities are
-  destroyed at `postclose`, and the module cannot be unloaded while a file is
-  open. Removal then waits for the timeout handler, flushes the submit
-  workqueue, calls `drm_sched_fini()` and destroys the workqueue, in that order
-  (see D4).
+- **Removal retires what the scheduler leaves behind.** `strela_job_fini()`
+  calls `drm_sched_fini()`, takes whatever is running off the device, then
+  walks the scheduler's pending list once: the job that had not finished (with
+  one credit there is at most one) is failed with `-ENODEV`, and every job on
+  the list is freed. 6.12's `drm_sched_fini()` cancels its free work and leaves
+  those jobs where they are; newer kernels hand them to a `.cancel_job`
+  callback, which is what the loop becomes on an upgrade. Jobs that never
+  started are not removal's problem: entities are destroyed at `postclose`, and
+  the module cannot be unloaded while a file is open.
 - **Removal waits for a running timeout handler first.** `timedout_job()` ends
   with `drm_sched_start()`, which restarts the scheduler's work items. If that
   lands after `drm_sched_fini()` has stopped them, one runs once the run-queues
-  are freed and dereferences NULL in `drm_sched_run_job_work()`. Userspace gets
-  there easily: the fence is signalled from inside the handler, so a process
-  that exits on it lets `rmmod` start while the handler is still running. The
-  timeout suite hit this under QEMU. `strela_device_fini()` therefore starts
-  with `cancel_delayed_work_sync()` on the scheduler's `work_tdr`.
+  are freed and dereferences NULL in `drm_sched_run_job_work()`. There is no
+  benefit to the handler running at that point; it may simply already be
+  running, and `drm_sched_fini()` only waits for it *after* stopping the work
+  items. The timeout suite hit this under QEMU when the handler still signalled
+  the fence itself, well before it restarted the scheduler. Now the fence is
+  signalled inside `drm_sched_start()` and the window is a few instructions
+  wide, but it is still there, so `strela_job_fini()` starts with
+  `cancel_delayed_work_sync()` on the scheduler's `work_tdr`.
 
 ### D8 — Binding validation is a pure function
 `strela_binding_check()` takes a size and a binding and returns 0 or `-EINVAL`,
@@ -336,19 +342,19 @@ interrupts testable without an FPGA — including the whole IREE stack.
 
 | Context | Code | May sleep? |
 |---|---|---|
-| process | ioctls, `strela_drain` | yes |
+| process | ioctls, `strela_job_fini` | yes |
 | hard IRQ / timer | `strela_irq`, `strela_sim_irq` → `strela_job_phase_done` | no |
 | scheduler workqueue | `run_job`, `free_job` | yes |
 | timeout workqueue | `timedout_job` | yes |
 
 - `sdev->lock` (a spinlock, taken with `_irqsave`) protects the active job and
-  the `dying` flag, and doubles as every hardware fence's lock.
+  doubles as every hardware fence's lock.
 - Never call a `dma_fence_*` function that takes `fence->lock` while holding
-  `sdev->lock`.
+  `sdev->lock`; use the `_locked` variant.
 - Never free GEM objects or DMA memory from the completion interrupt (D7).
-- `sdev->active` is set by `run_job()` and cleared by whoever finishes the job:
-  the interrupt, the timeout, or the drain. Nothing else may finish a job that
-  has started; the scheduler cancelling one is the first race in D4.
+- `sdev->active` is set by `run_job()` and cleared by the completion interrupt
+  or by `strela_job_abort()` (timeout and removal). A job must be off
+  `sdev->active` before anything finishes or frees it.
 - `job->phase` is only meaningful while the job is active.
 
 ---
@@ -376,7 +382,7 @@ times with different parameters, one suite each:
 | `timeout` | `sim_job_delay_us=900000` | jobs exceeding the 500 ms timeout |
 
 Reloading between suites also exercises unload, and the `queue` suite ends by
-deliberately leaving jobs queued so that removal has something to drain.
+deliberately leaving jobs queued so that removal has something to retire.
 
 Two targets:
 
@@ -416,7 +422,7 @@ Roughly in the order I would do them.
 4. **Fence lifetime versus device lifetime.** `fence->lock` points into
    `strela_device`. A sync_file fd can outlive the device, and
    `dma_fence_default_wait()` takes that lock even for an already-signalled fence.
-   The drain reduces the window; a per-job lock would close it.
+   A per-job lock would close it.
 5. **Submission is unbounded.** See D5: nothing limits how much a client can
    queue, so a submit loop can pin arbitrary memory. A byte budget rather than a
    job count would be the honest bound.

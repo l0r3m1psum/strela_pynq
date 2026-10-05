@@ -9,7 +9,6 @@ obj-$(CONFIG_DRM_ACCEL_STRELA) += strela2.o
 
 strela2-y := \
 	strela_core.o \
-	strela_device.o \
 	strela_drv.o \
 	strela_gem.o \
 	strela_job.o

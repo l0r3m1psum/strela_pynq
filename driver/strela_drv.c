@@ -124,14 +124,14 @@ static int strela_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = strela_device_init(sdev, pdev);
+	ret = strela_job_init(sdev);
 	if (ret)
-		return ret;
+		return dev_err_probe(&pdev->dev, ret, "cannot start the scheduler\n");
 
 	ret = drm_dev_register(&sdev->drm, 0);
 	if (ret) {
 		dev_err_probe(&pdev->dev, ret, "cannot register the accel device\n");
-		strela_device_fini(sdev);
+		strela_job_fini(sdev);
 		return ret;
 	}
 
@@ -144,10 +144,8 @@ static void strela_remove(struct platform_device *pdev)
 {
 	struct strela_device *sdev = platform_get_drvdata(pdev);
 
-	/* Strict order; each step is a precondition for the next. */
 	drm_dev_unregister(&sdev->drm); /* stop new ioctls */
-	strela_drain(sdev); /* fail the job on the hardware so its fence signals */
-	strela_device_fini(sdev); /* retire what is left, then tear down */
+	strela_job_fini(sdev); /* stop the device, retire what is left */
 }
 
 static const struct of_device_id strela_of_ids[] = {
@@ -181,8 +179,9 @@ static int __init strela_sim_dev_register(void)
 {
 	int i;
 
-	pr_warn("The CGRA is not modelled; each enabled column is copied input "
-		"to output\n");
+	if (sim_dev_count)
+		pr_warn("The CGRA is not modelled; each enabled column is "
+			"copied input to output\n");
 
 	for (i = 0; i < sim_dev_count && i < STRELA_MAX_SIM_DEVS; i++) {
 		strela_sim_pdevs[i] = platform_device_register_simple("strela", i,
