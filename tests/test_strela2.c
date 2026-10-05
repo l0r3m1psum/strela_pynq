@@ -751,6 +751,82 @@ out:
 	close(fd1);
 }
 
+/* Queue n jobs as a chain: each waits for the previous one's out-fence and
+ * reads the buffer the previous one wrote. The data only reaches the last
+ * buffer if every job ran, and ran after the one before it. */
+static void queue_chained_jobs(int fd, int n)
+{
+	enum { SIZE = 16 * STRELA_WORD_SIZE };
+	__u32 config, unused_in, unused_out;
+	/* NOTE(Diego): hmm VLA bad but I guess fine for testing. */
+	__u32 buf[n + 1], sync[n];
+	__u32 *first, *last;
+	int i;
+
+	/* Just to load the kernel... */
+	CHECK(make_buffers(fd, &config, &unused_in, &unused_out) == 0,
+	      "gem_new failed: %s", strerror(errno));
+	/* TODO: write a unified function that based on the arguments passed
+	 * just creates the BO or maps them as well (also the name should
+	 * reflect that it setup a kernel. */
+	if (gem_new_mapped(fd, SIZE, &buf[0], (void **)&first) ||
+	    gem_new_mapped(fd, SIZE, &buf[n], (void **)&last)) {
+		CHECK(false, "buffer setup failed: %s", strerror(errno));
+		return;
+	}
+	for (i = 1; i < n; i++)
+		CHECK(gem_new(fd, SIZE, &buf[i]) == 0, "gem_new(%d) failed: %s",
+		      i, strerror(errno));
+
+	CHECK(gem_sync(fd, buf[0], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
+		0, SIZE) == 0, "sync(first) failed: %s", strerror(errno));
+	CHECK(gem_sync(fd, buf[n], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE,
+		0, SIZE) == 0, "sync(last) failed: %s", strerror(errno));
+	for (i = 0; i < 16; i++) {
+		first[i] = 0xc0ffee00u + i;
+		last[i] = 0xdeadbeefu;
+	}
+	CHECK(gem_sync(fd, buf[n], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+		0, SIZE) == 0, "sync(last) failed: %s", strerror(errno));
+	CHECK(gem_sync(fd, buf[0], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+		0, SIZE) == 0, "sync(first) failed: %s", strerror(errno));
+
+	for (i = 0; i < n; i++) {
+		sync[i] = syncobj_new(fd);
+		CHECK(sync[i] != 0, "syncobj_new(%d) failed", i);
+		CHECK(submit_after(fd, config, buf[i], buf[i + 1], sync[i],
+				   i ? sync[i - 1] : 0) == 0,
+		      "submit %d failed: %s", i, strerror(errno));
+	}
+
+	CHECK(syncobj_wait(fd, sync[n - 1], 4000), "the last job never finished");
+
+	/* Positive means signalled without error, so this also catches a job
+	 * that is still pending once the one waiting on it is done. */
+	for (i = 0; i < n; i++)
+		CHECK(syncobj_status(fd, sync[i]) > 0, "job %d has fence status %d",
+		      i, syncobj_status(fd, sync[i]));
+
+	CHECK(gem_sync(fd, buf[n], DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_READ,
+		0, SIZE) == 0, "sync(last) failed: %s", strerror(errno));
+	for (i = 0; i < 16; i++)
+		CHECK(last[i] == 0xc0ffee00u + i,
+		      "word %d is 0x%08x after %d jobs, expected 0x%08x",
+		      i, last[i], n, 0xc0ffee00u + i);
+	CHECK(gem_sync(fd, buf[n], DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_READ,
+		0, SIZE) == 0, "sync(last) failed: %s", strerror(errno));
+
+	for (i = 0; i < n; i++)
+		syncobj_put(fd, sync[i]);
+	munmap(first, SIZE);
+	munmap(last, SIZE);
+}
+
+static void test_fence_chain(int fd)
+{
+	queue_chained_jobs(fd, 4);
+}
+
 /* A bad in-fence handle is rejected, and the flag is what makes the field
  * count: without it the field is ignored, which is how old userspace keeps
  * working. */
@@ -826,6 +902,7 @@ static const struct test core_tests[] = {
 	{ "buffers outlive their handles", test_buffers_outlive_handles },
 	{ "bad handle is rejected cleanly", test_bad_handle },
 	{ "two processes share a device", test_two_processes },
+	{ "jobs chained by fences run in order", test_fence_chain },
 };
 
 /* Needs slow jobs and shallow queues. */
