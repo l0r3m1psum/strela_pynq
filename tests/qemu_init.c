@@ -49,6 +49,11 @@ static const struct {
 		"timeout",
 		"sim_dev_count=1 sim_job_delay_us=900000",
 	},
+	{
+		/* libstrela on top of the driver. */
+		"library",
+		"sim_dev_count=2",
+	},
 };
 
 static int load_module(const char *args)

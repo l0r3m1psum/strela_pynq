@@ -8,6 +8,8 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -18,6 +20,12 @@
 
 #include "kselftest.h"
 #include "strela_drm.h"
+
+#define STRELA_TESTING_BITSTREAMS
+#include "strela.h"
+
+static strela_word
+max(strela_word a, strela_word b) { return a > b ? a : b; }
 
 /* Failures within the test that is currently running. */
 static int failures;
@@ -62,6 +70,17 @@ static int strela_open(int nth)
 	}
 
 	return -1;
+}
+
+/* The N in /dev/accel/accelN behind an open device, which is how libstrela
+ * names a device. */
+static unsigned strela_minor(int fd)
+{
+	struct stat st;
+
+	if (fstat(fd, &st) < 0)
+		ksft_exit_fail_msg("fstat: %s\n", strerror(errno));
+	return minor(st.st_rdev);
 }
 
 #define PARAM_DIR "/sys/module/strela2/parameters/"
@@ -266,36 +285,6 @@ static __u32 submit(int fd, __u32 config, __u32 in_handle, __u32 out_handle)
 
 	return sync;
 }
-
-enum {
-	STRELA_PE_ROWS = 4,
-	STRELA_PE_COLS = 4,
-	STRELA_NPE = STRELA_PE_ROWS * STRELA_PE_COLS,
-	STRELA_KERNEL_SIZE = STRELA_NPE * 5,
-};
-/* Configured for four colums
- */
-static const uint32_t bypass_kernel_bitstream[STRELA_KERNEL_SIZE] = {
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 4
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 0
-
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 5
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 1
-
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 14
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 10
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
-	0x00000021, 0x00000000, 0x00000012, 0x00000000, 0x00000000, // 2
-
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
-	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
-};
 
 /* Buffers big enough for the bindings above. */
 static int make_buffers(int fd, __u32 *config, __u32 *in, __u32 *out)
@@ -885,6 +874,174 @@ static void test_leave_work_queued(int fd)
 	}
 }
 
+static void test_lib_allocator_exhaustion(int fd)
+{
+	unsigned which = strela_minor(fd);
+	strela_dev *dev = strela_dev_init(which);
+
+	// The function is idempotent.
+	dev = strela_dev_init(which);
+
+	// printf("Testing STRELA %d\n", which);
+	CHECK(strela_dev_ok(dev), "strela_dev_init failed");
+
+	if (strela_dev_ok(dev)) {
+		for (int i = 0; i < 1000; i++) {
+			strela_kernel kernel = strela_kernel_alloc(dev);
+			strela_buffer input = strela_buffer_alloc(dev, 1000);
+			(void) kernel;
+			(void) input;
+		}
+		CHECK(strela_dev_get_err(dev).errnum == -STRELA_ERR_NO_MEM,
+			"This test should have exhausted memory");
+		strela_dev_deinit(dev);
+		dev = strela_dev_init(which);
+	}
+}
+
+static void test_lib_bypass(int fd)
+{
+	strela_dev *dev = strela_dev_init(strela_minor(fd));
+	size_t len = 10;
+
+	strela_kernel kernel = strela_kernel_alloc(dev);
+	strela_kernel_set(dev, kernel, bypass_kernel_bitstream);
+	strela_buffer input = strela_buffer_alloc(dev, len);
+	strela_buffer output = strela_buffer_alloc(dev, len);
+	strela_word *output_ref = malloc(sizeof *output_ref * len);
+
+	CHECK(output_ref && strela_dev_ok(dev), "initialization failed");
+
+	if (output_ref && strela_dev_ok(dev)) {
+		strela_word *input_ptr = strela_buffer_to_ptr(dev, input);
+		strela_word *output_ptr = strela_buffer_to_ptr(dev, output);
+		for (size_t i = 0; i < len; i++) {
+			input_ptr[i] = i;
+		}
+		memset(output_ptr, 0, sizeof *output_ptr * len);
+		memcpy(output_ref, strela_buffer_to_ptr(dev, input), sizeof *output_ref * len);
+
+		// We do this just to test the library functionality.
+		strela_buffer input_copy = strela_buffer_from_ptr(dev, input_ptr);
+		CHECK(memcmp(&input, &input_copy, sizeof input) == 0,
+			"strela_buffer_from_ptr(dev, strela_buffer_to_ptr(dev, buf)) == buf"
+			" is not true (note that the padding between the field of "
+			"the struct should be zero).");
+	}
+
+	size_t len1 = len/4;
+	size_t len2 = len1 + len%4;
+	// Here we do not care if input or output are valid or not since if we
+	// calculate junk values because one of the two buffers is not valid it
+	// means that the context is not okay and the strela_config function will
+	// ignore the data.
+	strela_conf conf = {
+		.inp0_offset = input.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = 1,
+		.inp1_offset = input.offset_words_from_base + len1*1, .inp1_count = len1, .inp1_stride = 1,
+		.inp2_offset = input.offset_words_from_base + len1*2, .inp2_count = len1, .inp2_stride = 1,
+		.inp3_offset = input.offset_words_from_base + len1*3, .inp3_count = len2, .inp3_stride = 1,
+
+		.out0_offset = output.offset_words_from_base + len1*0, .out0_count = len1,
+		.out1_offset = output.offset_words_from_base + len1*1, .out1_count = len1,
+		.out2_offset = output.offset_words_from_base + len1*2, .out2_count = len1,
+		.out3_offset = output.offset_words_from_base + len1*3, .out3_count = len2,
+	};
+
+	strela_config(dev, kernel, &conf);
+	// Not necessary to free here but this is the earliest time that it is
+	// safe to do.
+	strela_kernel_free(dev, kernel);
+	// There is no problem executing multiple times with the same configuration.
+	strela_execute(dev);
+	strela_execute(dev);
+	// Not necessary to free here but this is the earliest time that it is
+	// safe to do.
+	strela_buffer_free(dev, input);
+
+	CHECK(output_ref && strela_dev_ok(dev),
+		"Could not execute bypass because: %d\n", strela_dev_get_err(dev).errnum);
+
+	if (output_ref && strela_dev_ok(dev)) {
+		printf("Results of bypass kernel:\n");
+		// inspect_mem("input", strela_buffer_to_ptr(dev, input), len);
+		// inspect_mem("output", strela_buffer_to_ptr(dev, output), len);
+		// inspect_mem("output_ref", output_ref, len);
+		CHECK(memcmp(strela_buffer_to_ptr(dev, output), output_ref, sizeof (strela_word) * len) == 0,
+			"bypass made mistakes");
+	}
+
+	strela_buffer_free(dev, output);
+
+	strela_dev_reset_err(dev);
+	// This is not necessary but it is something that the library should be
+	// capable of doing.
+	strela_buffer_free_all(dev);
+	strela_kernel_free_all(dev);
+}
+
+static void test_lib_partial_relu(int fd)
+{
+	strela_dev *dev = strela_dev_init(strela_minor(fd));
+	size_t len = 10;
+
+	strela_kernel kernel = strela_kernel_alloc(dev);
+	strela_kernel_set(dev, kernel, relu_kernel_bitstream);
+	// STRELA can do in-place updates.
+	strela_buffer input_output = strela_buffer_alloc(dev, len);
+	strela_word *output_ref = malloc(sizeof *output_ref * len);
+
+	CHECK(output_ref && strela_dev_ok(dev), "initialization failed");
+
+	if (output_ref && strela_dev_ok(dev)) {
+		strela_word *input_output_ptr = strela_buffer_to_ptr(dev, input_output);
+		for (size_t i = 0; i < len; i++) {
+			input_output_ptr[i] = i%2 == 0 ? 1 : -1;
+			output_ref[i] = max(0, input_output_ptr[i]);
+		}
+		// printf("Before relu kernel:\n");
+		// inspect_mem("input_output", strela_buffer_to_ptr(dev, input_output), len);
+		// inspect_mem("output_ref", output_ref, len);
+	}
+
+
+	size_t len1 = len/2;
+	size_t len2 = len1 + len%2;
+
+	strela_conf conf = {
+	#if 0
+		.inp0_offset = input_output.offset_words_from_base + len1*0, .inp0_count = len1, .inp0_stride = 1,
+		.inp3_offset = input_output.offset_words_from_base + len1*1, .inp3_count = len2, .inp3_stride = 1,
+
+		.out0_offset = input_output.offset_words_from_base + len1*0, .out0_count = len1,
+		.out3_offset = input_output.offset_words_from_base + len1*1, .out3_count = len2,
+	#else
+		.inp0_offset = input_output.offset_words_from_base, .inp0_count = len, .inp0_stride = 1,
+		.out0_offset = input_output.offset_words_from_base, .out0_count = len,
+	#endif
+	};
+
+	strela_config(dev, kernel, &conf);
+	strela_kernel_free(dev, kernel);
+	strela_execute(dev);
+
+	CHECK(output_ref && strela_dev_ok(dev),
+		"Could not execute relu because: %d\n", strela_dev_get_err(dev).errnum);
+
+	if (output_ref && strela_dev_ok(dev)) {
+		printf("Results of relu kernel:\n");
+		// inspect_mem("input_output", strela_buffer_to_ptr(dev, input_output), len);
+		// inspect_mem("output_ref", output_ref, len);
+		CHECK(memcmp(strela_buffer_to_ptr(dev, input_output), output_ref, sizeof (strela_word) * len) == 0,
+			"relu made mistakes");
+	}
+
+	strela_buffer_free(dev, input_output);
+	strela_kernel_free(dev, kernel);
+	strela_dev_reset_err(dev);
+	strela_buffer_free_all(dev);
+	strela_kernel_free_all(dev);
+}
+
 
 struct test {
 	const char *name;
@@ -919,6 +1076,12 @@ static const struct test timeout_tests[] = {
 	{ "job timeout is survivable", test_timeout },
 };
 
+static const struct test library_tests[] = {
+	{ "memory can be exhausted",  test_lib_allocator_exhaustion },
+	{ "four way bypass",  test_lib_bypass },
+	{ "test partial relu",  test_lib_partial_relu },
+};
+
 static const struct {
 	const char *name;
 	const struct test *tests;
@@ -927,6 +1090,7 @@ static const struct {
 	{ "core", core_tests, ARRAY_SIZE(core_tests) },
 	{ "queue", queue_tests, ARRAY_SIZE(queue_tests) },
 	{ "timeout", timeout_tests, ARRAY_SIZE(timeout_tests) },
+	{ "library", library_tests, ARRAY_SIZE(library_tests) },
 };
 
 int main(int argc, char **argv)

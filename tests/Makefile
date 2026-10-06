@@ -22,10 +22,14 @@ OUT ?= $(src)/qemu-run-$(ARCH)
 
 MODULE ?=
 
-CFLAGS      := -static -Wall -Wextra -O2
+CFLAGS      := -Wall -Wextra -O2
 TEST_CFLAGS := $(CFLAGS) -Wno-unused-parameter \
-	-I$(src)/include/uapi -I$(OUT)/uapi/include \
+	-I$(src)/include -I$(src)/include/uapi -I$(OUT)/uapi/include \
 	-I$(KSRC)/tools/testing/selftests
+
+LIBSTRELA ?= $(OUT)/lib/libstrela.a
+LDLIBS    := -lstrela
+LDFLAGS   := -static -L$(dir $(LIBSTRELA))
 
 # gen_init_cpio ships with the kernel, so no cpio package is needed.
 GEN_INIT_CPIO := $(KDIR)/usr/gen_init_cpio
@@ -45,13 +49,13 @@ $(OUT)/uapi/include/drm/drm.h:
 	$(MAKE) -C $(KDIR) ARCH=$(ARCH) headers_install \
 		INSTALL_HDR_PATH=$(OUT)/uapi > /dev/null
 
-$(OUT)/test_strela2: test_strela2.c $(OUT)/uapi/include/drm/drm.h
+$(OUT)/test_strela2: test_strela2.c $(LIBSTRELA) $(OUT)/uapi/include/drm/drm.h
 	@mkdir -p $(OUT)
-	$(CC) $(TEST_CFLAGS) -o $@ $<
+	$(CC) $(TEST_CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 $(OUT)/init: qemu_init.c
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) -static $(CFLAGS) -o $@ $<
 
 $(OUT)/initramfs.cpio.gz: $(OUT)/test_strela2 $(OUT)/init $(MODULE)
 	@test -n "$(MODULE)" || \
@@ -69,5 +73,6 @@ $(OUT)/initramfs.cpio.gz: $(OUT)/test_strela2 $(OUT)/init $(MODULE)
 	$(GEN_INIT_CPIO) $(OUT)/initramfs.list | gzip -9 > $@
 
 clean:
-	rm -f $(OUT)/test_strela2 $(OUT)/init $(OUT)/initramfs.list $(OUT)/initramfs.cpio.gz
+	rm -f $(OUT)/test_strela2 $(OUT)/init
+	rm -f $(OUT)/initramfs.list $(OUT)/initramfs.cpio.gz
 	rm -rf $(OUT)/uapi

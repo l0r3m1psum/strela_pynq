@@ -22,7 +22,9 @@ extern "C" {
 /* STRELA hardware configuration constants.
  */
 enum {
-	STRELA_NPE = 4 * 4,
+	STRELA_PE_ROWS = 4,
+	STRELA_PE_COLS = 4,
+	STRELA_NPE = STRELA_PE_ROWS * STRELA_PE_COLS,
 	STRELA_KERNEL_SIZE = STRELA_NPE * 5,
 };
 
@@ -114,6 +116,10 @@ void          strela_buffer_get_data(strela_dev *dev, strela_buffer buffer,
                                      strela_word *ptr);
 void          strela_buffer_free(strela_dev *dev, strela_buffer buffer);
 void          strela_buffer_free_all(strela_dev *dev);
+// void          strela_buffer_flush(strela_dev *dev, strela_buffer buffer,
+//                                   size_t offset, size_t count);
+// void          strela_buffer_inval(strela_dev *dev, strela_buffer buffer,
+//                                   size_t offset, size_t count);
 
 /* The config function configures both the kernel and the I/O configuration.
  * In the future this functionality should be split to allow reuse of the same
@@ -121,6 +127,54 @@ void          strela_buffer_free_all(strela_dev *dev);
  */
 void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
 void strela_execute(strela_dev *dev);
+
+#ifdef STRELA_TESTING_BITSTREAMS
+/* Configured for four colums
+ */
+static const uint32_t bypass_kernel_bitstream[STRELA_KERNEL_SIZE] = {
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 4
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 0
+
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 5
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 1
+
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 14
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 10
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
+	0x00000021, 0x00000000, 0x00000012, 0x00000000, 0x00000000, // 2
+
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
+	0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
+};
+
+static const uint32_t relu_kernel_bitstream[STRELA_KERNEL_SIZE] = {
+    0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 12
+    0x00000021, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 8
+    0x00004083, 0x20CC0300, 0x000000A0, 0x00000000, 0x00000000, // 4
+    0x00000241, 0x020C0300, 0x00000099, 0x00000000, 0x00000000, // 0
+
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 13
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 9
+    0x00000011, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 5
+    0x00400008, 0x00000200, 0x00000000, 0x00000000, 0x00000000, // 1
+
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 14
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 10
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 6
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 2
+
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 15
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 11
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 7
+    0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000, // 3
+};
+#endif
 
 #ifdef __cplusplus
 }
