@@ -135,7 +135,7 @@ static int gem_new_mapped(int fd, __u64 size, __u32 *handle, void **ptr)
 	if (ioctl(fd, DRM_IOCTL_STRELA_GEM_NEW, &args) < 0)
 		return -1;
 
-	*ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+	*ptr = mmap(NULL, args.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
 		    args.offset);
 	if (*ptr == MAP_FAILED)
 		return -1;
@@ -899,8 +899,21 @@ static void test_lib_allocator_exhaustion(int fd)
 	}
 }
 
+static void test_lib_basic(int fd) {
+	unsigned count = 0;
+	CHECK(strela_device_count(&count) != -1, "Can't count STRELAs");
+
+	for (unsigned i = 0; i < count; i++) {
+		strela_dev *dev = strela_dev_init(i);
+		CHECK(strela_dev_ok(dev), "STRELA dev not ok");
+		strela_dev_deinit(dev);
+	}
+
+}
+
 static void test_lib_bypass(int fd)
 {
+
 	strela_dev *dev = strela_dev_init(strela_minor(fd));
 	size_t len = 10;
 
@@ -1077,6 +1090,7 @@ static const struct test timeout_tests[] = {
 };
 
 static const struct test library_tests[] = {
+	{ "basic functionality" }, test_lib_basic },
 	{ "memory can be exhausted",  test_lib_allocator_exhaustion },
 	{ "four way bypass",  test_lib_bypass },
 	{ "test partial relu",  test_lib_partial_relu },
