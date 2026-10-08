@@ -28,6 +28,25 @@ should be confirmed before it is relied on.
 | H8 | `STRELA_MKINPSIZE` packs stride in the upper 16 bits and total bytes in the lower 16, so a column can move at most 64 KiB − 1 per job. | **Unverified** — see D8 |
 | H9 | The I/O registers can be reprogrammed and exec restarted without reloading the config. | **Unverified** — would enable config caching and cheap batching |
 | H10 | Memory is not coherent with the CPU: explicit cache maintenance is required in both directions. | High — the old driver synced on every operation |
+| H11 | An input column takes one word in every `stride`. A stride of 0 never advances: the first word is delivered `count` times. | **Verified on the board** — see below |
+
+**H11 was measured, not read from code** (2026-10-08, first CGRA, bypass kernel,
+column 0 only, 8 output words, input `in[i] = 0xa000 + i`):
+
+| Input | Fence | Output |
+|---|---|---|
+| count 8, stride 1 | completed | `a000 a001 a002 … a007` |
+| count 8, stride 2 | completed | `a000 a002 a004 … a00e` |
+| count 8, stride 0 | completed | `a000` eight times |
+| count 0, stride 0 | cancelled after the timeout | nothing written |
+
+The driver's first version assumed that stride 0 meant stride 1, and the
+simulator copied that way; the old char driver wrote a size register of 0 for it,
+which is the last row and hangs the job. Neither was right. Stride 0 is a
+working broadcast, the way to feed a constant to a column. One board, one
+bitstream, one column and one count: it shows the behaviour, not its limits.
+`test_input_stride` in `tests/test_strela2.c` keeps the simulator and the board
+honest about it.
 
 Open hardware questions are collected in section 7.
 
@@ -257,6 +276,10 @@ with no locks, lookups or side effects, so KUnit can exercise it. It computes in
 `u64` because the inputs are attacker-controlled `u32`s, and it enforces the
 64 KiB column limit from H8 as well as the buffer bounds.
 
+It sizes a stride of 0 as a stride of 1. For the config and output bindings that
+is exact: they have no stride and are `count` contiguous words. For an input it
+is pessimistic, since the hardware then reads a single word (H11), but safe.
+
 ### D9 — Unused columns
 A binding with handle 0 means "column unused", which is how a kernel that uses
 fewer than four columns is expressed (the relu test in `tools/test_strela.c` uses
@@ -321,9 +344,9 @@ not accidentally deterministic. Three consequences:
   item from inside its own execution.
 
 Execution is a **bypass kernel**: every enabled column is copied from its input
-to its output, honouring offsets, counts and the input stride; a column disabled
-at either end is skipped; the configuration is never read and nothing is
-computed. `drm_warn()` says so on every job, so no output of a simulated device
+to its output, honouring offsets, counts and the input stride, including a
+stride of 0 repeating the first word (H11); a column disabled at either end is
+skipped; the configuration is never read and nothing is computed. `drm_warn()` says so on every job, so no output of a simulated device
 can be mistaken for something the CGRA produced.
 
 The bypass does the cache maintenance a real DMA master would: invalidate before
@@ -377,7 +400,7 @@ times with different parameters, one suite each:
 
 | Suite | Module parameters | Covers |
 |---|---|---|
-| `core` | `sim_dev_count=2` | basic submit, the bypass copy, ordering, buffer lifetime, bad handles, two processes |
+| `core` | `sim_dev_count=2` | basic submit, the bypass copy, input strides, ordering, buffer lifetime, bad handles, two processes |
 | `queue` | two devices, `sim_job_delay_us=100000` | async submit, device independence, in-fences across devices, and leaving work in flight for teardown to fail |
 | `timeout` | `sim_job_delay_us=900000` | jobs exceeding the 500 ms timeout |
 
@@ -442,7 +465,9 @@ Roughly in the order I would do them.
 1. Can the I/O registers be reprogrammed and exec restarted **without**
    `LOAD_CONFIG`? (H9 — decides config caching and batching.)
 2. Does the hardware report per-output word counts, or an error/overflow bit?
-3. Does `EXEC_DONE` fire only when every output has reached its count?
+3. Does `EXEC_DONE` fire only when every output has reached its count? One
+   data point: an output asked for 8 words whose input supplies none never
+   completes (last row of the H11 table).
 4. What exactly do `OUT_ARB_HOLD` and `RESET_DMA` do, and is `RESET_DMA` a safe
    recovery from a hung job?
 5. Is a zero-size column genuinely inert, address included? (H7 — decides D9.)

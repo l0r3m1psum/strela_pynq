@@ -1055,6 +1055,71 @@ static void test_lib_partial_relu(int fd)
 	strela_kernel_free_all(dev);
 }
 
+/* An input column takes one word in every `stride`. A stride of 0 never
+ * advances, so the first word is delivered `count` times: measured on the
+ * board, and what the simulator copies too (DESIGN.md H11). */
+static void test_input_stride(int fd)
+{
+	enum { N = 8, WORDS = 2 * N, BYTES = WORDS * STRELA_WORD_SIZE };
+	static const __u32 strides[] = { 2, 0 };
+	__u32 config, unused_in, unused_out, in, out;
+	__u32 *in_ptr, *out_ptr;
+
+	CHECK(make_buffers(fd, &config, &unused_in, &unused_out) == 0,
+	      "gem_new failed: %s", strerror(errno));
+	if (gem_new_mapped(fd, BYTES, &in, (void **)&in_ptr) ||
+	    gem_new_mapped(fd, BYTES, &out, (void **)&out_ptr)) {
+		CHECK(false, "buffer setup failed: %s", strerror(errno));
+		return;
+	}
+
+	for (size_t s = 0; s < ARRAY_SIZE(strides); s++) {
+		__u32 stride = strides[s];
+		__u32 sync = syncobj_new(fd);
+		struct drm_strela_submit args = {
+			.config = { .handle = config, .count = 80 },
+			.inputs[0] = { .handle = in, .count = N, .stride = stride },
+			.outputs[0] = { .handle = out, .count = N },
+			.out_syncobj = sync,
+		};
+
+		CHECK(sync != 0, "syncobj_new failed");
+
+		CHECK(gem_sync(fd, in, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE, 0, BYTES) == 0 &&
+		      gem_sync(fd, out, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_WRITE, 0, BYTES) == 0,
+		      "sync failed: %s", strerror(errno));
+		for (int i = 0; i < WORDS; i++) {
+			in_ptr[i] = 0xa000u + i;
+			out_ptr[i] = 0xdeadbeefu;
+		}
+		CHECK(gem_sync(fd, in, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE, 0, BYTES) == 0 &&
+		      gem_sync(fd, out, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE, 0, BYTES) == 0,
+		      "sync failed: %s", strerror(errno));
+
+		CHECK(ioctl(fd, DRM_IOCTL_STRELA_SUBMIT, &args) == 0,
+		      "stride %u: submit failed: %s", stride, strerror(errno));
+		CHECK(syncobj_wait(fd, sync, 4000), "stride %u: fence never signalled", stride);
+		CHECK(syncobj_status(fd, sync) > 0, "stride %u: the job reported an error", stride);
+		syncobj_put(fd, sync);
+
+		CHECK(gem_sync(fd, out, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_READ, 0, BYTES) == 0,
+		      "sync failed: %s", strerror(errno));
+		for (int i = 0; i < N; i++)
+			CHECK(out_ptr[i] == 0xa000u + i * stride,
+			      "stride %u: word %d is 0x%08x, expected 0x%08x",
+			      stride, i, out_ptr[i], 0xa000u + i * stride);
+		/* Nothing past the count is written. */
+		for (int i = N; i < WORDS; i++)
+			CHECK(out_ptr[i] == 0xdeadbeefu,
+			      "stride %u: word %d past the count was written (0x%08x)",
+			      stride, i, out_ptr[i]);
+		CHECK(gem_sync(fd, out, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_READ, 0, BYTES) == 0,
+		      "sync failed: %s", strerror(errno));
+	}
+
+	munmap(in_ptr, BYTES);
+	munmap(out_ptr, BYTES);
+}
 
 struct test {
 	const char *name;
@@ -1067,6 +1132,7 @@ struct test {
 static const struct test core_tests[] = {
 	{ "single job completes", test_single_job },
 	{ "a job copies its enabled columns", test_data_is_copied },
+	{ "input stride selects words, 0 repeats the first", test_input_stride },
 	{ "gem sync checks its arguments", test_gem_sync_args },
 	{ "jobs complete in order", test_fifo_order },
 	{ "buffers outlive their handles", test_buffers_outlive_handles },

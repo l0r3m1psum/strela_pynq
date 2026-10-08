@@ -174,7 +174,7 @@ static void strela_sim_bypass_column(struct strela_device *sdev,
 				     const struct strela_binding *out)
 {
 	struct drm_gem_dma_object *in_obj, *out_obj;
-	u32 stride = max(in->stride, 1u);
+	u32 stride = in->stride;
 	const u32 *src;
 	u32 *dst;
 	u32 i, n;
@@ -197,24 +197,14 @@ static void strela_sim_bypass_column(struct strela_device *sdev,
 	/* Sync at each end the way the DMA engine's transfer would: take the
 	 * input as the device would see it, publish the output the same way.
 	 * Userspace cleaned the input before submitting and will invalidate the
-	 * output once the fence signals; these are the two halves in between.
-	 *
-	 * Both are no-ops under QEMU, so this is not for the test targets. It is
-	 * for the simulator running on the PYNQ itself — insmod with
-	 * sim_dev_count to exercise the IREE stack without the CGRA — where the
-	 * caches are real and the copy would otherwise hand back stale data.
-	 * Legal now only because strela_gem_create() allocates
-	 * DMA_BIDIRECTIONAL. */
+	 * output once the fence signals; these are the two halves in between. */
 	dma_sync_single_for_cpu(sdev->drm.dev, strela_binding_addr(in),
-				(size_t)n * stride * STRELA_WORD_SIZE,
+				((size_t)(n - 1) * stride + 1) * STRELA_WORD_SIZE,
 				DMA_FROM_DEVICE);
 
 	src = (const u32 *)in_obj->vaddr + in->offset;
 	dst = (u32 *)out_obj->vaddr + out->offset;
 
-	/* One word every stride words, which is what the high half of the size
-	 * register asks an input column to do (STRELA_MKINPSIZE). Outputs are
-	 * contiguous: strela_hw_write_binding() passes strided = false. */
 	for (i = 0; i < n; i++)
 		dst[i] = src[i * stride];
 
