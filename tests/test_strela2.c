@@ -1156,7 +1156,7 @@ static const struct test timeout_tests[] = {
 };
 
 static const struct test library_tests[] = {
-	{ "basic functionality" }, test_lib_basic },
+	{ "basic functionality", test_lib_basic },
 	{ "memory can be exhausted",  test_lib_allocator_exhaustion },
 	{ "four way bypass",  test_lib_bypass },
 	{ "test partial relu",  test_lib_partial_relu },
