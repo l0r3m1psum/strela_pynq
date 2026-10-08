@@ -115,8 +115,8 @@ static void strela_hw_write_binding(struct strela_device *sdev,
 				    struct strela_binding_regs regs)
 {
 	/* NOTE(Diego): max(b->stride, 1) is an hack to make it work with the
-	 * config binding wich does not support stride and should always be 0.
-	 */
+	 * config and output bindings wich does not support stride and should always
+	 * be 0. */
 	u32 size = ((b->stride*STRELA_WORD_SIZE) << 16)
 		| max(b->stride, 1)*b->count*STRELA_WORD_SIZE;
 	dma_addr_t addr = b->obj ? strela_binding_addr(b) : 0;
