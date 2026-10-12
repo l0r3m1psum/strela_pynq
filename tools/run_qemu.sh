@@ -46,7 +46,7 @@ if [ "$arch" = arm ]; then
 		-kernel "$kernel" \
 		-dtb "$dtb" \
 		-initrd "$initramfs" \
-		-append "console=ttyPS0,115200 earlyprintk rdinit=/init panic=1 panic_on_warn=1 oops=panic quiet" \
+		-append "console=ttyPS0,115200 earlyprintk rdinit=/init panic=1 panic_on_warn=1 oops=panic quiet cma=128M" \
 		< /dev/null | tee "$out/console.log"
 else
 	[ "$accel" = kvm ] && cpu=host || cpu=max
@@ -61,7 +61,7 @@ else
 		-no-reboot \
 		-kernel "$kernel" \
 		-initrd "$initramfs" \
-		-append "console=ttyS0 rdinit=/init panic=1 panic_on_warn=1 oops=panic quiet" \
+		-append "console=ttyS0 rdinit=/init panic=1 panic_on_warn=1 oops=panic quiet cma=128M" \
 		< /dev/null | tee "$out/console.log"
 fi
 

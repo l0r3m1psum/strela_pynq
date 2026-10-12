@@ -24,11 +24,13 @@ should be confirmed before it is relied on.
 | H4 | DMA is contiguous-only: no scatter/gather, and Zynq-7000 has no IOMMU. | High |
 | H5 | DMA addresses are 32-bit. | High (Zynq-7000) |
 | H6 | Buffers must be word-aligned; offsets and counts are in 4-byte words. | High |
-| H7 | A column with a zero count is inactive and its address is not read. | **Unverified** — see D9 |
-| H8 | `STRELA_MKINPSIZE` packs stride in the upper 16 bits and total bytes in the lower 16, so a column can move at most 64 KiB − 1 per job. | **Unverified** — see D8 |
+| H7 | A column with a zero count is inactive: nothing is written through its address. | **Verified on the board** for writes; reads cannot be observed. See below and D9 |
+| H8 | The input size register packs the stride in bytes in the upper 16 bits and the total bytes in the lower 16, so a column can move at most 64 KiB − 1 per job. | **Verified on the board** up to the largest encodable values; whether more could work is untested, because the driver refuses it. See D8 |
 | H9 | The I/O registers can be reprogrammed and exec restarted without reloading the config. | **Unverified** — would enable config caching and cheap batching |
 | H10 | Memory is not coherent with the CPU: explicit cache maintenance is required in both directions. | High — the old driver synced on every operation |
 | H11 | An input column takes one word in every `stride`. A stride of 0 never advances: the first word is delivered `count` times. | **Verified on the board** — see below |
+| H12 | With a count of 0 the stride field is ignored: the column stays idle. | **Verified on the board** — see below |
+| H13 | A job finishes when every output has received its count. What the inputs do does not matter. | **Verified on the board** — see below |
 
 **H11 was measured, not read from code** (2026-10-08, first CGRA, bypass kernel,
 column 0 only, 8 output words, input `in[i] = 0xa000 + i`):
@@ -47,6 +49,30 @@ working broadcast, the way to feed a constant to a column. One board, one
 bitstream, one column and one count: it shows the behaviour, not its limits.
 `test_input_stride` in `tests/test_strela2.c` keeps the simulator and the board
 honest about it.
+
+**H7, H8, H12 and H13 were measured the same day**, 14 jobs on the first CGRA
+with the bypass kernel. Unused columns were pointed at a 4 KiB guard buffer with
+a count of 0; the guard was untouched after every job.
+
+| Case | Result |
+|---|---|
+| unused columns: guard, count 0, stride 0 | completed, data correct |
+| unused columns: guard, count 0, input stride 1 (size register `0x00040000`) | completed, data correct |
+| unused columns: guard, count 0, input stride 16383 (`0xfffc0000`) | completed, data correct |
+| column 2 in use, columns 0, 1 and 3 unused with stride 1 | completed, data correct |
+| 16383 words, stride 1 (65532 bytes, the largest encodable) | completed, all words correct |
+| 8191 words, stride 2 (span 65528 bytes) | completed, all words correct |
+| 2 words, stride 8191 (stride field 32764 bytes) | completed, both correct |
+| four columns at once with counts 8, 64, 4 and 1000 | completed, all correct |
+| input 16 words, output 8 | completed, 8 words written |
+| input 8 words, output unused (guard, count 0) | completed, nothing written |
+| input 8 words, output 16 | cancelled after the timeout; 8 words written |
+
+So an output that asks for more than its input sends hangs the job, while an
+input with nowhere to go or with words to spare is harmless. After the one
+cancelled job a baseline job ran correctly. H9 was not tested: every job
+through this driver reloads the configuration, so there is no way to try it
+from userspace.
 
 Open hardware questions are collected in section 7.
 
@@ -281,16 +307,32 @@ is exact: they have no stride and are `count` contiguous words. For an input it
 is pessimistic, since the hardware then reads a single word (H11), but safe.
 
 ### D9 — Unused columns
-A binding with handle 0 means "column unused", which is how a kernel that uses
-fewer than four columns is expressed (the relu test in `tools/test_strela.c` uses
-one input and one output). Handle 0 is never a valid GEM handle: DRM allocates
-from 1.
+Every binding names a buffer; a handle of 0 is rejected with `-ENOENT`. A
+column that is not used gets any valid handle and a count of 0 at both ends,
+which is how a kernel that uses fewer than four columns is expressed.
 
-Unused columns are currently programmed with address 0 and size 0. The old driver
-wrote the region base with a zero count. If H7 turns out to be false — if the DMA
-engine ever touches a zero-length column — address 0 is physical DDR, and an
-output column writing there would corrupt memory. Pointing unused columns at a
-known-safe address would be the cheap fix.
+An earlier version accepted handle 0 as "unused" and programmed that column
+with address 0. Address 0 is physical DDR, so if the DMA engine had ever touched
+a zero-length column an output would have written there. Now the address
+registers only ever hold addresses inside buffers the client owns, which is also
+what the old char driver did (it wrote the region base with a zero count). H7
+says the column is idle anyway; this makes the driver safe without relying on
+it. It also removed the special case from `strela_binding_get()`,
+`strela_hw_write_binding()` and the simulator.
+
+With a count of 0 `strela_binding_check()` skips the stride limit, since the
+hardware ignores that field (H12), but still requires the offset to be inside
+the buffer, so the address register never points outside it.
+
+Userspace keeps one small spare buffer for this. `strela_submit()` in the tests
+fills every binding the caller left zeroed. libstrela allocates a 64-byte spare
+at `strela_dev_init()`, and `strela_binding()` points every member of
+`strela_conf` with a count of 0 at it. The offset is passed through, so it must
+fit the spare.
+
+The one arrangement that does not work is half a column: an output asking for
+more words than its input sends never completes (H13). The simulator models
+that, by leaving such a job for the timeout.
 
 ### D11 — Fences are sync objects, in and out
 `DRM_IOCTL_STRELA_SUBMIT` takes two sync object handles: `out_syncobj` receives
@@ -400,7 +442,7 @@ times with different parameters, one suite each:
 
 | Suite | Module parameters | Covers |
 |---|---|---|
-| `core` | `sim_dev_count=2` | basic submit, the bypass copy, input strides, ordering, buffer lifetime, bad handles, two processes |
+| `core` | `sim_dev_count=2` | basic submit, the bypass copy, input strides, ordering, buffer lifetime, bad and zero handles, idle bindings, a starved output, two processes |
 | `queue` | two devices, `sim_job_delay_us=100000` | async submit, device independence, in-fences across devices, and leaving work in flight for teardown to fail |
 | `timeout` | `sim_job_delay_us=900000` | jobs exceeding the 500 ms timeout |
 
@@ -449,8 +491,8 @@ Roughly in the order I would do them.
 5. **Submission is unbounded.** See D5: nothing limits how much a client can
    queue, so a submit loop can pin arbitrary memory. A byte budget rather than a
    job count would be the honest bound.
-6. **Overflow checks against the RTL.** H7, H8 and H9 need confirming; the 64 KiB
-   limit in particular is currently enforced on a guess.
+6. **H9 against the RTL.** H7 and H8 are measured now; H9 (restarting exec
+   without reloading the config) cannot be tried through this driver.
 7. **`queue_dealloca` and friends in the IREE HAL driver** are still
    `UNIMPLEMENTED`, and `dispatch`/`copy_buffer`/`queue_execute` there are no-ops.
 8. **Error reporting per job.** The hardware may be able to report how many words
@@ -465,12 +507,13 @@ Roughly in the order I would do them.
 1. Can the I/O registers be reprogrammed and exec restarted **without**
    `LOAD_CONFIG`? (H9 — decides config caching and batching.)
 2. Does the hardware report per-output word counts, or an error/overflow bit?
-3. Does `EXEC_DONE` fire only when every output has reached its count? One
-   data point: an output asked for 8 words whose input supplies none never
-   completes (last row of the H11 table).
+3. ~~Does `EXEC_DONE` fire only when every output has reached its count?~~
+   Yes, measured: H13.
 4. What exactly do `OUT_ARB_HOLD` and `RESET_DMA` do, and is `RESET_DMA` a safe
    recovery from a hung job?
-5. Is a zero-size column genuinely inert, address included? (H7 — decides D9.)
-6. Is the 64 KiB per-column limit real? (H8.)
+5. ~~Is a zero-size column genuinely inert, address included?~~ For writes
+   yes (H7), and D9 no longer depends on it.
+6. Is the 64 KiB per-column limit real? Transfers up to it work (H8); nothing
+   larger has been tried, because the driver refuses it.
 7. The block design has two CGRAs but `pl_gold.dts` lists only
    `cgra_axi_lite_0`. Should the second be exposed?

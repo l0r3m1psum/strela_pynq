@@ -51,7 +51,12 @@ struct drm_strela_gem_sync {
 	__u64 length;
 };
 
-/* One input or output binding. Offsets and counts are in STRELA words. */
+/* One input or output binding. Offsets and counts are in STRELA words.
+ *
+ * Every binding must name a buffer: a handle of 0 is rejected. A column that
+ * is not used gets any valid handle and a count of 0, at both ends. The job
+ * finishes when every output has received its count, so an output must not ask
+ * for more words than its input sends. */
 struct drm_strela_binding {
 	__u32 handle;
 	__u32 offset;

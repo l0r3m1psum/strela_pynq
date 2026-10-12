@@ -216,9 +216,12 @@ static int strela_binding_check(u64 obj_size,
 	 * 64 KiB upwards would silently corrupt the stride field. */
 	if (span_bytes > STRELA_MAX_COLUMN_BYTES)
 		return -EINVAL;
-	if (stride * STRELA_WORD_SIZE > STRELA_MAX_COLUMN_BYTES)
+	/* The hardware ignores the stride of a column that moves nothing. */
+	if (b->count && stride * STRELA_WORD_SIZE > STRELA_MAX_COLUMN_BYTES)
 		return -EINVAL;
 
+	/* TODO(Diego): I guess here we could add support for any offset when
+	 * count is null. */
 	if (end > obj_size)
 		return -EINVAL;
 
@@ -227,20 +230,17 @@ static int strela_binding_check(u64 obj_size,
 
 /* Resolve one binding and take a reference on its buffer object, which is
  * released when the job is freed. This is what stops a buffer from going away
- * under a queued job. */
+ * under a queued job.
+ *
+ * Every binding names a buffer, a column that moves nothing included: that one
+ * has a count of 0. The address registers therefore only ever hold addresses
+ * the client owns. */
 static int strela_binding_get(struct drm_file *file_priv,
 			      const struct drm_strela_binding *src,
-			      struct strela_binding *dst, bool optional)
+			      struct strela_binding *dst)
 {
 	struct drm_gem_object *obj;
 	int ret;
-
-	if (!src->handle) {
-		if (!optional)
-			return -EINVAL;
-		memset(dst, 0, sizeof(*dst));
-		return 0;
-	}
 
 	obj = drm_gem_object_lookup(file_priv, src->handle);
 	if (!obj)
@@ -304,17 +304,17 @@ int strela_submit_ioctl(struct drm_device *drm, void *data,
 			goto err_cleanup;
 	}
 
-	ret = strela_binding_get(file_priv, &args->config, &job->config, false);
+	ret = strela_binding_get(file_priv, &args->config, &job->config);
 	if (ret)
 		goto err_cleanup;
 	for (i = 0; i < STRELA_NUM_IO_COLS; i++) {
 		ret = strela_binding_get(file_priv, &args->inputs[i],
-					 &job->inputs[i], true);
+					 &job->inputs[i]);
 		if (ret)
 			goto err_cleanup;
 
 		ret = strela_binding_get(file_priv, &args->outputs[i],
-					 &job->outputs[i], true);
+					 &job->outputs[i]);
 		if (ret)
 			goto err_cleanup;
 	}
@@ -361,6 +361,7 @@ static const struct strela_binding_case strela_binding_cases[] = {
 	{ "empty count", 64, { .handle = 1, .offset = 0, .count = 0, .stride = 1 }, 0 },
 	{ "stride zero is supported", 64, { .handle = 1, .offset = 0, .count = 16, .stride = 0 }, 0 },
 	{ "one word past the end", 64, { .handle = 1, .offset = 0, .count = 17, .stride = 1 }, -EINVAL },
+	{ "empty count ignores stride", 64, { .handle = 1, .offset = 16, .count = 0, .stride = 0x40000000 }, 0 },
 	{ "offset past the end", 64, { .handle = 1, .offset = 17, .count = 0, .stride = 1 }, -EINVAL },
 	{ "strided past the end", 64, { .handle = 1, .offset = 0, .count = 16, .stride = 2 }, -EINVAL },
 	{ "count overflows u32", U64_MAX, { .handle = 1, .offset = 0, .count = 0x40000000, .stride = 4 }, -EINVAL },

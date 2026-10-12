@@ -119,12 +119,12 @@ static void strela_hw_write_binding(struct strela_device *sdev,
 	 * be 0. */
 	u32 size = ((b->stride*STRELA_WORD_SIZE) << 16)
 		| max(b->stride, 1)*b->count*STRELA_WORD_SIZE;
-	dma_addr_t addr = b->obj ? strela_binding_addr(b) : 0;
+	dma_addr_t addr = strela_binding_addr(b);
 
 	drm_WARN_ON(&sdev->drm, upper_32_bits(addr));
 
 	writel(addr, sdev->base + regs.addr);
-	writel(b->obj ? size : 0, sdev->base + regs.size);
+	writel(size, sdev->base + regs.size);
 }
 
 static const struct strela_binding_regs conf_regs = {
@@ -168,31 +168,33 @@ static u64 strela_sim_phase_us(enum strela_job_phase phase)
 	return us + get_random_u32_below(us / 2 + 1);
 }
 
-/* One column pair of the bypass kernel: input i copied to output i. */
-static void strela_sim_bypass_column(struct strela_device *sdev,
+/* One column pair of the bypass kernel: input i copied to output i.
+ *
+ * Returns false if the output is left waiting for words its input never
+ * sends. The CGRA finishes a job when every output has its count, so that job
+ * never completes (DESIGN.md H13). */
+static bool strela_sim_bypass_column(struct strela_device *sdev,
 				     const struct strela_binding *in,
 				     const struct strela_binding *out)
 {
 	struct drm_gem_dma_object *in_obj, *out_obj;
+	bool fed = out->count <= in->count;
 	u32 stride = in->stride;
 	const u32 *src;
 	u32 *dst;
 	u32 i, n;
 
-	/* Disabled at one end or the other: nothing to copy. */
-	if (!in->obj || !out->obj)
-		return;
-
 	/* Both bindings were checked against their buffers at submit time, so
-	 * the shorter of the two counts is in range for both. */
+	 * the shorter of the two counts is in range for both. A count of 0 at
+	 * either end leaves nothing to copy. */
 	n = min(in->count, out->count);
 	if (!n)
-		return;
+		return fed;
 
 	in_obj = to_drm_gem_dma_obj(in->obj);
 	out_obj = to_drm_gem_dma_obj(out->obj);
 	if (drm_WARN_ON_ONCE(&sdev->drm, !in_obj->vaddr || !out_obj->vaddr))
-		return;
+		return fed;
 
 	/* Sync at each end the way the DMA engine's transfer would: take the
 	 * input as the device would see it, publish the output the same way.
@@ -211,6 +213,8 @@ static void strela_sim_bypass_column(struct strela_device *sdev,
 	dma_sync_single_for_device(sdev->drm.dev, strela_binding_addr(out),
 				   (size_t)n * STRELA_WORD_SIZE,
 				   DMA_TO_DEVICE);
+
+	return fed;
 }
 
 /* The simulated device, running one whole job: configure, then execute.
@@ -224,6 +228,7 @@ static void strela_sim_work(struct work_struct *work)
 		container_of(work, struct strela_device, sim_work);
 	struct strela_job *job;
 	unsigned long flags;
+	bool fed = true;
 	u64 slice_us;
 	int i;
 
@@ -242,8 +247,14 @@ static void strela_sim_work(struct work_struct *work)
 		/* On real hardware columns do DMA in parallel bu this is good enough. */
 		if (!strela_sim_wait(sdev, slice_us))
 			return;
-		strela_sim_bypass_column(sdev, &job->inputs[i], &job->outputs[i]);
+		fed &= strela_sim_bypass_column(sdev, &job->inputs[i],
+							&job->outputs[i]);
 	}
+
+	/* An output still waiting for input never raises exec-done; the job
+	 * is left for the timeout, as on the CGRA. */
+	if (!fed)
+		return;
 
 	strela_job_phase_done(sdev, STRELA_JOB_PHASE_EXEC);
 }

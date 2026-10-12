@@ -28,6 +28,8 @@ enum {
 	STRELA_KERNEL_SIZE = STRELA_NPE * 5,
 };
 
+#define STRELA_DRM_NAME "strela"
+
 typedef int32_t strela_word;
 
 enum strela_err {
