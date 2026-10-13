@@ -106,8 +106,6 @@ void          strela_kernel_free_all(strela_dev *dev);
 
 /* STRELA input and output data buffers management.
  * A pointer can be obtained to read and write data.
- * TODO: right now it is implemented as a bump allocator but in the future a
- * free list implementation should be used.
  */
 strela_buffer strela_buffer_alloc(strela_dev *dev, size_t size);
 strela_word  *strela_buffer_to_ptr(strela_dev *dev, strela_buffer buffer);
@@ -118,10 +116,10 @@ void          strela_buffer_get_data(strela_dev *dev, strela_buffer buffer,
                                      strela_word *ptr);
 void          strela_buffer_free(strela_dev *dev, strela_buffer buffer);
 void          strela_buffer_free_all(strela_dev *dev);
-// void          strela_buffer_flush(strela_dev *dev, strela_buffer buffer,
-//                                   size_t offset, size_t count);
-// void          strela_buffer_inval(strela_dev *dev, strela_buffer buffer,
-//                                   size_t offset, size_t count);
+void          strela_buffer_flush(strela_dev *dev, strela_buffer buffer,
+                                  size_t offset, size_t count);
+void          strela_buffer_inval(strela_dev *dev, strela_buffer buffer,
+                                  size_t offset, size_t count);
 
 /* The config function configures both the kernel and the I/O configuration.
  * In the future this functionality should be split to allow reuse of the same

@@ -406,6 +406,26 @@ strela_kernel_alloc(strela_dev *dev) {
 	return res;
 }
 
+static void
+strela_sync(strela_dev *dev, __u32 handle, __u32 flags, size_t offset_words, size_t words) {
+	if (strela_dev_ok(dev) && words != 0) {
+		/* TODO: allocations should be alligned by default! Here we round to
+		 * page size just to be sure. */
+
+		/* Round down and up respectivelly. */
+		size_t start =   offset_words          * sizeof (strela_word)         & ~(size_t) 4095;
+		size_t end   = ((offset_words + words) * sizeof (strela_word) + 4095) & ~(size_t) 4095;
+
+		struct drm_strela_gem_sync args = {
+			.handle = handle, .flags = flags, .offset = start, .length = end - start,
+		};
+		if (ioctl(dev->fd, DRM_IOCTL_STRELA_GEM_SYNC, &args) == -1) {
+			perror("DRM_IOCTL_STRELA_GEM_SYNC");
+			dev->res.errnum = errno;
+		}
+	}
+}
+
 // TODO: do an out of band data structure for the pool allocator to be able to
 // check if a handle is allocated or not and return STRELA_ERR_BAD_ARG if it is.
 // struct { bool allocated; uint8_t next_free; } free_list[128];
@@ -416,11 +436,18 @@ strela_kernel_set(strela_dev *dev, strela_kernel kernel, const uint32_t data[STR
 		if (!kernel.valid || kernel.handle >= 128) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
 		}
+	}
 
-		if (strela_dev_ok(dev)) {
-			unsigned char *ptr = dev->kernel_pool.buf + kernel.handle * STRELA_KERNEL_SIZE * 4;
-			memcpy(ptr, data, STRELA_KERNEL_SIZE * 4);
-		}
+	if (strela_dev_ok(dev)) {
+		unsigned char *ptr = dev->kernel_pool.buf + kernel.handle * STRELA_KERNEL_SIZE * 4;
+		memcpy(ptr, data, STRELA_KERNEL_SIZE * 4);
+		strela_sync(
+			dev,
+			dev->kernels_bo_handle,
+			DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
+			kernel.handle*STRELA_KERNEL_SIZE,
+			STRELA_KERNEL_SIZE
+		);
 	}
 }
 
@@ -430,17 +457,17 @@ strela_kernel_free(strela_dev *dev, strela_kernel kernel) {
 		if (!kernel.valid || kernel.handle >= 128) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
 		}
+	}
 
-		if (strela_dev_ok(dev)) {
-			unsigned char *ptr = dev->kernel_pool.buf + kernel.handle * STRELA_KERNEL_SIZE * 4;
-			if (false) {
-				pool_free(&dev->kernel_pool, ptr);
-			} else {
-				fprintf(stderr, "Kernel freeing is not implemented right now "
-					"because separate configuration and execution is not "
-					"supported yet. If you want to free memory you need to call"
-					"strela_kernel_free_all\n");
-			}
+	if (strela_dev_ok(dev)) {
+		unsigned char *ptr = dev->kernel_pool.buf + kernel.handle * STRELA_KERNEL_SIZE * 4;
+		if (false) {
+			pool_free(&dev->kernel_pool, ptr);
+		} else {
+			fprintf(stderr, "Kernel freeing is not implemented right now "
+				"because separate configuration and execution is not "
+				"supported yet. If you want to free memory you need to call"
+				"strela_kernel_free_all\n");
 		}
 	}
 }
@@ -547,8 +574,9 @@ strela_buffer_free(strela_dev *dev, strela_buffer buffer) {
 	if (strela_dev_ok(dev)) {
 		if (!buffer.valid) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		} else {
+			free_list_free(&dev->buffer_free_list, strela_buffer_to_ptr(dev, buffer));
 		}
-		free_list_free(&dev->buffer_free_list, strela_buffer_to_ptr(dev, buffer));
 	}
 }
 
@@ -557,6 +585,46 @@ strela_buffer_free_all(strela_dev *dev) {
 	if (strela_dev_ok(dev)) {
 		free_list_free_all(&dev->buffer_free_list);
 	}
+}
+
+static void
+strela_buffer_sync(
+	strela_dev *dev, strela_buffer buffer, __u32 flags, size_t offset, size_t count
+) {
+	size_t total = STRELA_TENSOR_MEMORY_SIZE / sizeof(strela_word);
+	if (strela_dev_ok(dev)) {
+		if (
+			!buffer.valid
+			|| offset > buffer.size_words
+			|| count > buffer.size_words - offset
+			|| buffer.offset_words_from_base > total
+			|| buffer.size_words > total - buffer.offset_words_from_base
+		) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		}
+	}
+
+	if (strela_dev_ok(dev)) {
+		strela_sync(dev, dev->tensors_bo_handle, flags, buffer.offset_words_from_base + offset, count);
+	}
+}
+
+void
+strela_buffer_flush(
+	strela_dev *dev, strela_buffer buffer, size_t offset, size_t count
+) {
+	strela_buffer_sync(
+		dev, buffer, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE, offset, count
+	);
+}
+
+void
+strela_buffer_inval(
+	strela_dev *dev, strela_buffer buffer, size_t offset, size_t count
+) {
+	strela_buffer_sync(
+		dev, buffer, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_READ, offset, count
+	);
 }
 
 void
@@ -592,28 +660,6 @@ strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 		};
 
 		dev->configured = true;
-	}
-}
-
-/* TODO(Diego): this will be exposed pubblically via typed strela_buffer
- * interface and for kernels it will just be used internally. */
-static void
-strela_sync(strela_dev *dev, __u32 handle, __u32 flags, size_t offset_words, size_t words) {
-	if (strela_dev_ok(dev) && words != 0) {
-		/* TODO: allocations should be alligned by default! Here we round to
-		 * page size just to be sure. */
-
-		/* Round down and up respectivelly. */
-		size_t start =   offset_words          * sizeof (strela_word)         & ~(size_t) 4095;
-		size_t end   = ((offset_words + words) * sizeof (strela_word) + 4095) & ~(size_t) 4095;
-
-		struct drm_strela_gem_sync args = {
-			.handle = handle, .flags = flags, .offset = start, .length = end - start,
-		};
-		if (ioctl(dev->fd, DRM_IOCTL_STRELA_GEM_SYNC, &args) == -1) {
-			perror("DRM_IOCTL_STRELA_GEM_SYNC");
-			dev->res.errnum = errno;
-		}
 	}
 }
 
