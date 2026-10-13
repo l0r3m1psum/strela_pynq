@@ -184,7 +184,6 @@ int strela_gem_sync_ioctl(struct drm_device *drm, void *data,
 	if (!obj)
 		return -ENOENT;
 
-	/* TODO(Diego): this is probably not safe from overflows... */
 	if (args->offset > obj->size || args->length > obj->size - args->offset) {
 		ret = -EINVAL;
 		goto out;

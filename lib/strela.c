@@ -41,6 +41,7 @@ enum {
 	STRELA_DEVICE_MAX = 8,
 	STRELA_KERNEL_MEMORY_SIZE = sizeof (strela_word)*STRELA_KERNEL_SIZE*128,
 	STRELA_TENSOR_MEMORY_SIZE = 1024*1024*50,
+	CACHELINE_SIZE = 64,
 };
 
 /* The kernel has a limit of ACCEL_MAX_MINORS shared with other kind of
@@ -97,6 +98,11 @@ struct accel_iter {
 static void
 accel_iter_next(accel_iter *iter);
 
+/* TODO: The iterator should take a DIR * as an argument wich shuold be closed
+ * outside the loop
+ * dir = opendir();
+ * for () {}
+ * closedir(dir); */
 static accel_iter
 accel_iter_make() {
 	accel_iter iter = {0};
@@ -406,18 +412,15 @@ strela_kernel_alloc(strela_dev *dev) {
 	return res;
 }
 
+static bool
+is_aligned(uintptr_t ptr, size_t align) { return ptr % align == 0; }
+
 static void
 strela_sync(strela_dev *dev, __u32 handle, __u32 flags, size_t offset_words, size_t words) {
 	if (strela_dev_ok(dev) && words != 0) {
-		/* TODO: allocations should be alligned by default! Here we round to
-		 * page size just to be sure. */
-
-		/* Round down and up respectivelly. */
-		size_t start =   offset_words          * sizeof (strela_word)         & ~(size_t) 4095;
-		size_t end   = ((offset_words + words) * sizeof (strela_word) + 4095) & ~(size_t) 4095;
 
 		struct drm_strela_gem_sync args = {
-			.handle = handle, .flags = flags, .offset = start, .length = end - start,
+			.handle = handle, .flags = flags, .offset = offset_words*sizeof(strela_word), .length = words*sizeof(strela_word),
 		};
 		if (ioctl(dev->fd, DRM_IOCTL_STRELA_GEM_SYNC, &args) == -1) {
 			perror("DRM_IOCTL_STRELA_GEM_SYNC");
@@ -494,7 +497,12 @@ strela_buffer_alloc(strela_dev *dev, size_t size_words) {
 	if (strela_dev_ok(dev)) {
 		size_t size_bytes = size_words * sizeof (strela_word);
 		if (size_bytes >= size_words) {
-			unsigned char *ptr = free_list_alloc(&dev->buffer_free_list, size_bytes, sizeof (strela_word));
+			/* The minimal unit for cache synchornization (i.e flushing and
+			 * invalidation) should be one cache line (usually 64 byte). */
+			size_t page_allignment = 64;
+			unsigned char *ptr = free_list_alloc(
+				&dev->buffer_free_list, size_bytes, page_allignment
+			);
 			if (ptr) {
 				res.valid = true;
 				res.size_words = size_words;
@@ -613,15 +621,35 @@ void
 strela_buffer_flush(
 	strela_dev *dev, strela_buffer buffer, size_t offset, size_t count
 ) {
-	strela_buffer_sync(
-		dev, buffer, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE, offset, count
-	);
+	enum { CACHELINE_WORDS = CACHELINE_SIZE / sizeof (strela_word) };
+
+	/* Round down and up respectively. */
+	size_t mask  = ~(size_t) (CACHELINE_WORDS - 1);
+	size_t start = offset & mask;
+	size_t end   = (offset + count + CACHELINE_WORDS - 1) & mask;
+
+	if (count != 0) {
+		strela_buffer_sync(
+			dev, buffer, DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE, start, end - start /* i.e. count */
+		);
+	}
 }
 
+/* Invalidate marks the cache line as empty without writing its contents back to
+ * memory. If the line held data the CPU had written but that had not reached
+ * memory yet, that data is gone. Hence it is hazardous to invelidate memory of
+ * a neighbour. As in Vulkan's vkInvalidateMappedMemoryRanges we disallow this.
+ */
 void
 strela_buffer_inval(
 	strela_dev *dev, strela_buffer buffer, size_t offset, size_t count
 ) {
+	if (   !is_aligned(offset * sizeof (strela_word), CACHELINE_SIZE)
+		|| !is_aligned(count  * sizeof (strela_word), CACHELINE_SIZE)
+	) {
+		dev->res.errnum = -STRELA_ERR_BAD_ARG;
+	}
+
 	strela_buffer_sync(
 		dev, buffer, DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_READ, offset, count
 	);
@@ -720,31 +748,6 @@ strela_execute(strela_dev *dev) {
 	}
 
 	if (strela_dev_ok(dev)) {
-		/* Cache flush. */
-		strela_sync(
-			dev,
-			dev->submit.config.handle,
-			DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
-			dev->submit.config.offset,
-			dev->submit.config.count
-		);
-		for (size_t i = 0; i < COUNTOF(dev->submit.inputs); i++) {
-			const struct drm_strela_strided_binding *in = &dev->submit.inputs[i];
-			/* The last word read is at index (count - 1) * stride, so the
-			 * span to flush is one word longer than that: a single word for
-			 * stride 0. Without the test a count of 0 would wrap around. */
-			/* TODO(Diego): use max instead. */
-			size_t words = in->count == 0
-				? 0 : (size_t) (in->count - 1) * in->stride + 1;
-			strela_sync(
-				dev, in->handle,
-				DRM_STRELA_SYNC_FINI | DRM_STRELA_SYNC_WRITE,
-				in->offset, words
-			);
-		}
-	}
-
-	if (strela_dev_ok(dev)) {
 		if (ioctl(dev->fd, DRM_IOCTL_STRELA_SUBMIT, &dev->submit) == -1) {
 			perror("DRM_IOCTL_STRELA_SUBMIT");
 			dev->res.errnum = errno;
@@ -764,19 +767,6 @@ strela_execute(strela_dev *dev) {
 			errno = -status;
 			perror("STRELA job failed");
 			dev->res.errnum = -status;
-		}
-	}
-
-	if (strela_dev_ok(dev)) {
-		/* Cache invalidation. */
-		for (size_t i = 0; i < COUNTOF(dev->submit.inputs); i++) {
-			strela_sync(
-				dev,
-				dev->submit.outputs[i].handle,
-				DRM_STRELA_SYNC_PREP | DRM_STRELA_SYNC_READ,
-				dev->submit.outputs[i].offset,
-				dev->submit.outputs[i].count
-			);
 		}
 	}
 }

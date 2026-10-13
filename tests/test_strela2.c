@@ -937,16 +937,24 @@ static void test_lib_basic(int fd) {
 
 }
 
+/* libstrela syncs whole cache lines: a flush is rounded out to them, an
+ * invalidate must already cover them exactly, since rounding it would discard a
+ * neighbour's unflushed data. Buffers that get invalidated are therefore
+ * allocated in multiples of this. */
+/* TODO: this should be pubblically exposed by strela.h or strela_drm.h */
+enum { LIB_SYNC_WORDS = 64 / sizeof(strela_word) };
+
 static void test_lib_bypass(int fd)
 {
 
 	strela_dev *dev = strela_dev_init(strela_minor(fd));
 	size_t len = 10;
+	size_t alloc_len = LIB_SYNC_WORDS;
 
 	strela_kernel kernel = strela_kernel_alloc(dev);
 	strela_kernel_set(dev, kernel, bypass_kernel_bitstream);
-	strela_buffer input = strela_buffer_alloc(dev, len);
-	strela_buffer output = strela_buffer_alloc(dev, len);
+	strela_buffer input = strela_buffer_alloc(dev, alloc_len);
+	strela_buffer output = strela_buffer_alloc(dev, alloc_len);
 	strela_word *output_ref = malloc(sizeof *output_ref * len);
 
 	CHECK(output_ref && strela_dev_ok(dev), "initialization failed");
@@ -990,9 +998,16 @@ static void test_lib_bypass(int fd)
 	// Not necessary to free here but this is the earliest time that it is
 	// safe to do.
 	strela_kernel_free(dev, kernel);
+	// The device must see what the CPU wrote. That includes the zeroes in the
+	// output: left dirty in the cache they could be written back later, over
+	// what the device put there.
+	strela_buffer_flush(dev, input, 0, len);
+	strela_buffer_flush(dev, output, 0, len);
 	// There is no problem executing multiple times with the same configuration.
 	strela_execute(dev);
 	strela_execute(dev);
+	// The CPU must see what the device wrote.
+	strela_buffer_inval(dev, output, 0, alloc_len);
 	// Not necessary to free here but this is the earliest time that it is
 	// safe to do.
 	strela_buffer_free(dev, input);
@@ -1022,11 +1037,12 @@ static void test_lib_partial_relu(int fd)
 {
 	strela_dev *dev = strela_dev_init(strela_minor(fd));
 	size_t len = 10;
+	size_t alloc_len = LIB_SYNC_WORDS;
 
 	strela_kernel kernel = strela_kernel_alloc(dev);
 	strela_kernel_set(dev, kernel, relu_kernel_bitstream);
 	// STRELA can do in-place updates.
-	strela_buffer input_output = strela_buffer_alloc(dev, len);
+	strela_buffer input_output = strela_buffer_alloc(dev, alloc_len);
 	strela_word *output_ref = malloc(sizeof *output_ref * len);
 
 	CHECK(output_ref && strela_dev_ok(dev), "initialization failed");
@@ -1062,7 +1078,9 @@ static void test_lib_partial_relu(int fd)
 
 	strela_config(dev, kernel, &conf);
 	strela_kernel_free(dev, kernel);
+	strela_buffer_flush(dev, input_output, 0, len);
 	strela_execute(dev);
+	strela_buffer_inval(dev, input_output, 0, alloc_len);
 
 	CHECK(output_ref && strela_dev_ok(dev),
 		"Could not execute relu because: %d\n", strela_dev_get_err(dev).errnum);
