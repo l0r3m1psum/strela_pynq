@@ -53,7 +53,10 @@ $(BOARD_TESTS): $(BOARD_KERNEL) $(BOARD_LIB_A) tests/test_strela2.c
 	$(TESTS) ARCH=arm CROSS_COMPILE=$(CROSS) CC=$(ARM_CC) \
 		KDIR=$(PYNQ)/kernel OUT=$(PYNQ)/tests LIBSTRELA=$(BOARD_LIB_A) test_bin
 
-# TODO: test-board that download_device_tree_overlay.sh and run board tests
+test-board: board-tests
+	tools/download_board_config.sh
+	tools/download_device_tree_overlay.sh
+	tools/download_tests.sh
 
 test: test-arm test-x86_64
 
