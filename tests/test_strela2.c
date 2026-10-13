@@ -275,7 +275,7 @@ static int submit_after(int fd, __u32 config, __u32 in_handle, __u32 out_handle,
 			__u32 out_syncobj, __u32 in_syncobj)
 {
 	struct drm_strela_submit args = {
-		.config = { .handle = config, .count = 80, .stride = 0 },
+		.config = { .handle = config, .count = 80 },
 		.out_syncobj = out_syncobj,
 		.in_syncobj = in_syncobj,
 	};
@@ -283,11 +283,11 @@ static int submit_after(int fd, __u32 config, __u32 in_handle, __u32 out_handle,
 	if (in_syncobj)
 		args.flags |= DRM_STRELA_SUBMIT_WAIT_SYNCOBJ;
 
-	args.inputs[0] = (struct drm_strela_binding){
+	args.inputs[0] = (struct drm_strela_strided_binding){
 		.handle = in_handle, .count = 16, .stride = 1,
 	};
 	args.outputs[0] = (struct drm_strela_binding){
-		.handle = out_handle, .count = 16, .stride = 0,
+		.handle = out_handle, .count = 16,
 	};
 
 	return strela_submit(fd, &args);
@@ -422,15 +422,15 @@ static void test_data_is_copied(int fd)
 	CHECK(sync != 0, "syncobj_new failed");
 
 	args.config = (struct drm_strela_binding){
-		.handle = config, .count = 80, .stride = 0,
+		.handle = config, .count = 80,
 	};
 	args.out_syncobj = sync;
 	for (c = 0; c < COLS; c++) {
-		args.inputs[c] = (struct drm_strela_binding){
+		args.inputs[c] = (struct drm_strela_strided_binding){
 			.handle = in[c], .count = N, .stride = 1,
 		};
 		args.outputs[c] = (struct drm_strela_binding){
-			.handle = out[c], .count = N, .stride = 0,
+			.handle = out[c], .count = N,
 		};
 	}
 	/* Column 3 is left for strela_submit() to mark unused. */
@@ -611,7 +611,7 @@ static void test_buffers_outlive_handles(int fd)
 static void test_bad_handle(int fd)
 {
 	struct drm_strela_submit args = {
-		.config = { .handle = 0xdeadbeef, .count = 80, .stride = 0 },
+		.config = { .handle = 0xdeadbeef, .count = 80 },
 		.out_syncobj = syncobj_new(fd),
 	};
 	int before, after;
@@ -856,13 +856,13 @@ static void test_in_fence_bad_handle(int fd)
 	CHECK(make_buffers(fd, &config, &in, &out) == 0, "gem_new failed");
 	args.out_syncobj = syncobj_new(fd);
 	args.config = (struct drm_strela_binding){
-		.handle = config, .count = 80, .stride = 0,
+		.handle = config, .count = 80,
 	};
-	args.inputs[0] = (struct drm_strela_binding){
+	args.inputs[0] = (struct drm_strela_strided_binding){
 		.handle = in, .count = 16, .stride = 1,
 	};
 	args.outputs[0] = (struct drm_strela_binding){
-		.handle = out, .count = 16, .stride = 0,
+		.handle = out, .count = 16,
 	};
 
 	CHECK(strela_submit(fd, &args) < 0,
@@ -1158,7 +1158,7 @@ static void test_zero_handle(int fd)
 	args.out_syncobj = syncobj_new(fd);
 	args.config = (struct drm_strela_binding){ .handle = config, .count = 80 };
 	for (int i = 0; i < STRELA_NUM_IO_COLS; i++) {
-		args.inputs[i] = (struct drm_strela_binding){ .handle = in };
+		args.inputs[i] = (struct drm_strela_strided_binding){ .handle = in };
 		args.outputs[i] = (struct drm_strela_binding){ .handle = out };
 	}
 	args.outputs[STRELA_NUM_IO_COLS - 1].handle = 0;
@@ -1178,10 +1178,10 @@ static void test_idle_binding(int fd)
 	CHECK(make_buffers(fd, &config, &in, &out) == 0, "gem_new failed");
 	args.out_syncobj = syncobj_new(fd);
 	args.config = (struct drm_strela_binding){ .handle = config, .count = 80 };
-	args.inputs[0] = (struct drm_strela_binding){ .handle = in, .count = 8, .stride = 1 };
+	args.inputs[0] = (struct drm_strela_strided_binding){ .handle = in, .count = 8, .stride = 1 };
 	args.outputs[0] = (struct drm_strela_binding){ .handle = out, .count = 8 };
 	for (int i = 1; i < STRELA_NUM_IO_COLS; i++) {
-		args.inputs[i] = (struct drm_strela_binding){
+		args.inputs[i] = (struct drm_strela_strided_binding){
 			.handle = in, .stride = ~0u };
 		args.outputs[i] = (struct drm_strela_binding){ .handle = out };
 	}
@@ -1205,7 +1205,7 @@ static void test_starved_output(int fd)
 	CHECK(make_buffers(fd, &config, &in, &out) == 0, "gem_new failed");
 	args.out_syncobj = syncobj_new(fd);
 	args.config = (struct drm_strela_binding){ .handle = config, .count = 80 };
-	args.inputs[0] = (struct drm_strela_binding){ .handle = in, .count = 8, .stride = 1 };
+	args.inputs[0] = (struct drm_strela_strided_binding){ .handle = in, .count = 8, .stride = 1 };
 	args.outputs[0] = (struct drm_strela_binding){ .handle = out, .count = 16 };
 
 	CHECK(strela_submit(fd, &args) == 0, "submit failed: %s", strerror(errno));

@@ -205,7 +205,7 @@ void strela_job_fini(struct strela_device *sdev)
  * Returns 0 or a negative errno.
  */
 static int strela_binding_check(u64 obj_size,
-				const struct drm_strela_binding *b)
+				const struct drm_strela_strided_binding *b)
 {
 	u64 stride = max(b->stride, 1u);
 	u64 span_bytes = (u64)b->count * stride * STRELA_WORD_SIZE;
@@ -235,9 +235,9 @@ static int strela_binding_check(u64 obj_size,
  * Every binding names a buffer, a column that moves nothing included: that one
  * has a count of 0. The address registers therefore only ever hold addresses
  * the client owns. */
-static int strela_binding_get(struct drm_file *file_priv,
-			      const struct drm_strela_binding *src,
-			      struct strela_binding *dst)
+static int strela_strided_binding_get(struct drm_file *file_priv,
+				      const struct drm_strela_strided_binding *src,
+				      struct strela_binding *dst)
 {
 	struct drm_gem_object *obj;
 	int ret;
@@ -255,8 +255,19 @@ static int strela_binding_get(struct drm_file *file_priv,
 	dst->obj = obj;
 	dst->offset = src->offset;
 	dst->count = src->count;
-	dst->stride = src->stride;
 	return 0;
+}
+
+/* The config and the outputs have no stride: they are contiguous words. */
+static int strela_binding_get(struct drm_file *file_priv,
+			      const struct drm_strela_binding *src,
+			      struct strela_binding *dst)
+{
+	struct drm_strela_strided_binding strided = {
+		src->handle, src->offset, src->count, 1
+	};
+
+	return strela_strided_binding_get(file_priv, &strided, dst);
 }
 
 int strela_submit_ioctl(struct drm_device *drm, void *data,
@@ -308,10 +319,11 @@ int strela_submit_ioctl(struct drm_device *drm, void *data,
 	if (ret)
 		goto err_cleanup;
 	for (i = 0; i < STRELA_NUM_IO_COLS; i++) {
-		ret = strela_binding_get(file_priv, &args->inputs[i],
-					 &job->inputs[i]);
+		ret = strela_strided_binding_get(file_priv, &args->inputs[i],
+						 &job->inputs[i]);
 		if (ret)
 			goto err_cleanup;
+		job->input_strides[i] = args->inputs[i].stride;
 
 		ret = strela_binding_get(file_priv, &args->outputs[i],
 					 &job->outputs[i]);
@@ -351,7 +363,7 @@ err_free:
 struct strela_binding_case {
 	const char *name;
 	u64 obj_size;
-	struct drm_strela_binding binding;
+	struct drm_strela_strided_binding binding;
 	int expected;
 };
 

@@ -302,9 +302,15 @@ with no locks, lookups or side effects, so KUnit can exercise it. It computes in
 `u64` because the inputs are attacker-controlled `u32`s, and it enforces the
 64 KiB column limit from H8 as well as the buffer bounds.
 
-It sizes a stride of 0 as a stride of 1. For the config and output bindings that
-is exact: they have no stride and are `count` contiguous words. For an input it
-is pessimistic, since the hardware then reads a single word (H11), but safe.
+Only inputs have a stride: the UAPI gives them `struct
+drm_strela_strided_binding`, while the config and the outputs use `struct
+drm_strela_binding`, which has none. The check takes the strided form, and the
+other two are checked with a stride of 1, which is what `count` contiguous
+words are.
+
+An input stride of 0 is sized as a stride of 1, because that is the byte count
+the size register gets (`strela_input_size()`). For the buffer bounds it is
+pessimistic, since the hardware then reads a single word (H11), but safe.
 
 ### D9 — Unused columns
 Every binding names a buffer; a handle of 0 is rejected with `-ENOENT`. A
@@ -324,11 +330,10 @@ With a count of 0 `strela_binding_check()` skips the stride limit, since the
 hardware ignores that field (H12), but still requires the offset to be inside
 the buffer, so the address register never points outside it.
 
-Userspace keeps one small spare buffer for this. `strela_submit()` in the tests
-fills every binding the caller left zeroed. libstrela allocates a 64-byte spare
-at `strela_dev_init()`, and `strela_binding()` points every member of
-`strela_conf` with a count of 0 at it. The offset is passed through, so it must
-fit the spare.
+`strela_submit()` in the tests keeps a small spare buffer and points every
+binding the caller left zeroed at it. libstrela needs none: `strela_config()`
+gives all eight columns the tensors buffer, so an unused member of
+`strela_conf` is that handle with a count of 0.
 
 The one arrangement that does not work is half a column: an output asking for
 more words than its input sends never completes (H13). The simulator models

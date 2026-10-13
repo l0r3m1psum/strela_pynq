@@ -95,7 +95,6 @@ static irqreturn_t strela_irq_thread_fn(int irq, void *data)
 	return IRQ_NONE;
 }
 
-
 /* Byte address of a binding inside its buffer object. */
 static dma_addr_t strela_binding_addr(const struct strela_binding *b)
 {
@@ -110,15 +109,16 @@ struct strela_binding_regs {
 	u32 size;
 };
 
+static u32 strela_input_size(u32 count, u32 stride)
+{
+	return ((stride * STRELA_WORD_SIZE) << 16)
+		| max(stride, 1u) * count * STRELA_WORD_SIZE;
+}
+
 static void strela_hw_write_binding(struct strela_device *sdev,
 				    const struct strela_binding *b,
-				    struct strela_binding_regs regs)
+				    struct strela_binding_regs regs, u32 size)
 {
-	/* NOTE(Diego): max(b->stride, 1) is an hack to make it work with the
-	 * config and output bindings wich does not support stride and should always
-	 * be 0. */
-	u32 size = ((b->stride*STRELA_WORD_SIZE) << 16)
-		| max(b->stride, 1)*b->count*STRELA_WORD_SIZE;
 	dma_addr_t addr = strela_binding_addr(b);
 
 	drm_WARN_ON(&sdev->drm, upper_32_bits(addr));
@@ -174,12 +174,11 @@ static u64 strela_sim_phase_us(enum strela_job_phase phase)
  * sends. The CGRA finishes a job when every output has its count, so that job
  * never completes (DESIGN.md H13). */
 static bool strela_sim_bypass_column(struct strela_device *sdev,
-				     const struct strela_binding *in,
+				     const struct strela_binding *in, u32 stride,
 				     const struct strela_binding *out)
 {
 	struct drm_gem_dma_object *in_obj, *out_obj;
 	bool fed = out->count <= in->count;
-	u32 stride = in->stride;
 	const u32 *src;
 	u32 *dst;
 	u32 i, n;
@@ -248,6 +247,7 @@ static void strela_sim_work(struct work_struct *work)
 		if (!strela_sim_wait(sdev, slice_us))
 			return;
 		fed &= strela_sim_bypass_column(sdev, &job->inputs[i],
+							job->input_strides[i],
 							&job->outputs[i]);
 	}
 
@@ -266,21 +266,18 @@ void strela_hw_program(struct strela_device *sdev,
 
 	lockdep_assert_held(&sdev->lock);
 
-	/* TODO(Diego): this is very bad. The binding for config and outputs
-	 * should be of a different type i.e. without stride. Right now this is
-	 * a patch that makes tests fail. */
-	drm_WARN_ON(&sdev->drm, job->config.stride);
-	for (i = 0; i < STRELA_NUM_IO_COLS; i++)
-		drm_WARN_ON(&sdev->drm, job->outputs[i].stride);
-
 	if (sdev->is_sim)
 		return;
 
-	strela_hw_write_binding(sdev, &job->config, conf_regs);
+	strela_hw_write_binding(sdev, &job->config, conf_regs,
+				job->config.count * STRELA_WORD_SIZE);
 
 	for (i = 0; i < STRELA_NUM_IO_COLS; i++) {
-		strela_hw_write_binding(sdev, &job->inputs[i], inp_regs[i]);
-		strela_hw_write_binding(sdev, &job->outputs[i], out_regs[i]);
+		strela_hw_write_binding(sdev, &job->inputs[i], inp_regs[i],
+					strela_input_size(job->inputs[i].count,
+							  job->input_strides[i]));
+		strela_hw_write_binding(sdev, &job->outputs[i], out_regs[i],
+					job->outputs[i].count * STRELA_WORD_SIZE);
 	}
 
 	writel(STRELA_OUT_ARB_HOLD_ENABLE, sdev->base + STRELA_REG_OUT_ARB_HOLD);

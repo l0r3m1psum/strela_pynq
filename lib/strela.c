@@ -559,18 +559,6 @@ strela_buffer_free_all(strela_dev *dev) {
 	}
 }
 
-// TODO(Diego): just inline I guess...
-static struct drm_strela_binding
-strela_binding(__u32 handle, size_t offset, size_t count, size_t stride) {
-	struct drm_strela_binding b = {
-		.handle = handle,
-		.offset = offset,
-		.count = count,
-		.stride = stride,
-	};
-	return b;
-}
-
 void
 strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 	if (strela_dev_ok(dev)) {
@@ -583,20 +571,22 @@ strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 		__u32 tensors = dev->tensors_bo_handle;
 
 		dev->submit = (struct drm_strela_submit) {
-			.config = strela_binding(
-				dev->kernels_bo_handle, kernel.handle * STRELA_KERNEL_SIZE, STRELA_KERNEL_SIZE, 0
-			),
+			.config = {
+				.handle = dev->kernels_bo_handle,
+				.offset = kernel.handle * STRELA_KERNEL_SIZE,
+				.count = STRELA_KERNEL_SIZE,
+			},
 			.inputs = {
-				strela_binding(tensors, conf->inp0_offset, conf->inp0_count, conf->inp0_stride),
-				strela_binding(tensors, conf->inp1_offset, conf->inp1_count, conf->inp1_stride),
-				strela_binding(tensors, conf->inp2_offset, conf->inp2_count, conf->inp2_stride),
-				strela_binding(tensors, conf->inp3_offset, conf->inp3_count, conf->inp3_stride),
+				{ tensors, conf->inp0_offset, conf->inp0_count, conf->inp0_stride },
+				{ tensors, conf->inp1_offset, conf->inp1_count, conf->inp1_stride },
+				{ tensors, conf->inp2_offset, conf->inp2_count, conf->inp2_stride },
+				{ tensors, conf->inp3_offset, conf->inp3_count, conf->inp3_stride },
 			},
 			.outputs = {
-				strela_binding(tensors, conf->out0_offset, conf->out0_count, 0),
-				strela_binding(tensors, conf->out1_offset, conf->out1_count, 0),
-				strela_binding(tensors, conf->out2_offset, conf->out2_count, 0),
-				strela_binding(tensors, conf->out3_offset, conf->out3_count, 0),
+				{ tensors, conf->out0_offset, conf->out0_count },
+				{ tensors, conf->out1_offset, conf->out1_count },
+				{ tensors, conf->out2_offset, conf->out2_count },
+				{ tensors, conf->out3_offset, conf->out3_count },
 			},
 			.out_syncobj = dev->syncobj_handle,
 		};
@@ -693,7 +683,7 @@ strela_execute(strela_dev *dev) {
 			dev->submit.config.count
 		);
 		for (size_t i = 0; i < COUNTOF(dev->submit.inputs); i++) {
-			const struct drm_strela_binding *in = &dev->submit.inputs[i];
+			const struct drm_strela_strided_binding *in = &dev->submit.inputs[i];
 			/* The last word read is at index (count - 1) * stride, so the
 			 * span to flush is one word longer than that: a single word for
 			 * stride 0. Without the test a count of 0 would wrap around. */

@@ -51,17 +51,17 @@ struct drm_strela_gem_sync {
 	__u64 length;
 };
 
-/* One input or output binding. Offsets and counts are in STRELA words.
- *
- * Every binding must name a buffer: a handle of 0 is rejected. A column that
- * is not used gets any valid handle and a count of 0, at both ends. The job
- * finishes when every output has received its count, so an output must not ask
- * for more words than its input sends. */
 struct drm_strela_binding {
 	__u32 handle;
-	__u32 offset;
-	__u32 count;
-	__u32 stride;   /* inputs only; outputs and config must pass 0 */
+	__u32 offset; /* In STRELA words. */
+	__u32 count; /* In STRELA words. */
+};
+
+struct drm_strela_strided_binding {
+	__u32 handle;
+	__u32 offset; /* In STRELA words. */
+	__u32 count; /* In STRELA words. */
+	__u32 stride; /* In STRELA words. */
 };
 
 /* Wait for in_syncobj before running the job. Without this flag the field is
@@ -86,7 +86,7 @@ struct drm_strela_binding {
  */
 struct drm_strela_submit {
 	struct drm_strela_binding config;
-	struct drm_strela_binding inputs[STRELA_NUM_IO_COLS];
+	struct drm_strela_strided_binding inputs[STRELA_NUM_IO_COLS];
 	struct drm_strela_binding outputs[STRELA_NUM_IO_COLS];
 	__u32 out_syncobj;      /* receives the completion fence */
 	__u32 flags;            /* DRM_STRELA_SUBMIT_* */

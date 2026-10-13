@@ -26,9 +26,11 @@ enum strela_job_phase {
 	STRELA_JOB_PHASE_EXEC,
 };
 
+/* TODO(Diego): create a separate type like drm_strela_binding and
+ * drm_strela_strided_binding. */
 struct strela_binding {
 	struct drm_gem_object *obj;
-	u32 offset, count, stride;
+	u32 offset, count;
 };
 
 struct strela_job {
@@ -46,6 +48,7 @@ struct strela_job {
 
 	struct strela_binding config;                      /* the bitstream */
 	struct strela_binding inputs[STRELA_NUM_IO_COLS];  /* DMA conf. */
+	u32 input_strides[STRELA_NUM_IO_COLS];
 	struct strela_binding outputs[STRELA_NUM_IO_COLS]; /* DMA conf. */
 
 	enum strela_job_phase phase;
