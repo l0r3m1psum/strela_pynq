@@ -142,6 +142,10 @@ pool_free_all(Pool *p) {
 	size_t chunk_count = p->buf_len / p->chunk_size;
 	size_t i;
 
+	// Chunks still on the list are pushed again below: drop it first, or they
+	// would appear twice and the list would loop.
+	p->head = NULL;
+
 	// Set all chunks to be free
 	for (i = 0; i < chunk_count; i++) {
 		void *ptr = &p->buf[i * p->chunk_size];

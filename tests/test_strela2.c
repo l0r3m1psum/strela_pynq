@@ -925,6 +925,40 @@ static void test_lib_allocator_exhaustion(int fd)
 	}
 }
 
+/* strela_kernel_free_all() with kernels still free must give back each slot
+ * exactly once: as many allocations succeed as there are slots, and no handle
+ * is handed out twice. */
+static void test_lib_kernel_free_all(int fd)
+{
+	enum { SLOTS = 128 };
+	strela_dev *dev = strela_dev_init(strela_minor(fd));
+	bool seen[SLOTS] = { false };
+	int n = 0;
+
+	strela_kernel_alloc(dev);
+	strela_kernel_free_all(dev);
+	CHECK(strela_dev_ok(dev), "initialization failed");
+
+	while (strela_dev_ok(dev) && n <= SLOTS) {
+		strela_kernel kernel = strela_kernel_alloc(dev);
+
+		if (!strela_dev_ok(dev))
+			break;
+		CHECK(kernel.handle < SLOTS && !seen[kernel.handle],
+		      "allocation %d handed out kernel %u twice", n, kernel.handle);
+		if (kernel.handle >= SLOTS || seen[kernel.handle])
+			break;
+		seen[kernel.handle] = true;
+		n++;
+	}
+	CHECK(n == SLOTS, "%d kernels were allocated, expected %d", n, SLOTS);
+	CHECK(strela_dev_get_err(dev).errnum == -STRELA_ERR_NO_MEM,
+	      "the pool did not run out: error %d", strela_dev_get_err(dev).errnum);
+
+	strela_dev_reset_err(dev);
+	strela_kernel_free_all(dev);
+}
+
 static void test_lib_basic(int fd) {
 	unsigned count = 0;
 	CHECK(strela_device_count(&count) != -1, "Can't count STRELAs");
@@ -1031,6 +1065,94 @@ static void test_lib_bypass(int fd)
 	// capable of doing.
 	strela_buffer_free_all(dev);
 	strela_kernel_free_all(dev);
+}
+
+/* Correct use only: every buffer is flushed after the CPU writes it and
+ * invalidated after the device does, while buffers are freed and reallocated
+ * around them. The allocator's headers live in the same non-coherent memory, in
+ * cache lines of their own that no sync covers. If a sync ever reached one, a
+ * header or a neighbour's data would change here.
+ *
+ * Only real hardware can fail this: QEMU does not model the caches. */
+static void test_lib_sync_stress(int fd)
+{
+	enum { BUFS = 24, ROUNDS = 96, MAX_WORDS = 4 * LIB_SYNC_WORDS, EVICT = 4 << 20 };
+	strela_dev *dev = strela_dev_init(strela_minor(fd));
+	strela_kernel kernel = strela_kernel_alloc(dev);
+	strela_buffer bufs[BUFS];
+	static strela_word shadow[BUFS][MAX_WORDS];
+	volatile unsigned char *evict = malloc(EVICT);
+	strela_word gen = 1;
+	bool ok = true;
+
+	strela_kernel_set(dev, kernel, bypass_kernel_bitstream);
+	for (int i = 0; i < BUFS; i++) {
+		bufs[i] = strela_buffer_alloc(dev, (1 + i % 4) * LIB_SYNC_WORDS);
+		if (!strela_dev_ok(dev))
+			break;
+		for (size_t w = 0; w < bufs[i].size_words; w++)
+			shadow[i][w] = strela_buffer_to_ptr(dev, bufs[i])[w] = gen++;
+	}
+	CHECK(evict && strela_dev_ok(dev), "initialization failed");
+
+	for (int r = 0; ok && evict && strela_dev_ok(dev) && r < ROUNDS; r++) {
+		int in = r % BUFS, out = (r * 7 + 3) % BUFS, re = (r * 5 + 11) % BUFS;
+		size_t n;
+
+		if (out == in)
+			out = (out + 1) % BUFS;
+		n = bufs[in].size_words < bufs[out].size_words
+			? bufs[in].size_words : bufs[out].size_words;
+
+		/* The CPU rewrites the input; both ends are flushed. */
+		for (size_t w = 0; w < bufs[in].size_words; w++)
+			shadow[in][w] = strela_buffer_to_ptr(dev, bufs[in])[w] = gen++;
+		strela_buffer_flush(dev, bufs[in], 0, bufs[in].size_words);
+		strela_buffer_flush(dev, bufs[out], 0, bufs[out].size_words);
+
+		strela_conf conf = {
+			.inp0_offset = bufs[in].offset_words_from_base, .inp0_count = n, .inp0_stride = 1,
+			.out0_offset = bufs[out].offset_words_from_base, .out0_count = n,
+		};
+		strela_config(dev, kernel, &conf);
+		strela_execute(dev);
+		strela_buffer_inval(dev, bufs[out], 0, bufs[out].size_words);
+		memcpy(shadow[out], shadow[in], n * sizeof(strela_word));
+
+		/* Allocator traffic next to live buffers: headers and free-list
+		 * nodes are written, and stay dirty in the cache. */
+		if (re != in && re != out) {
+			strela_buffer_free(dev, bufs[re]);
+			bufs[re] = strela_buffer_alloc(dev, (1 + (r + re) % 4) * LIB_SYNC_WORDS);
+			if (!strela_dev_ok(dev))
+				break;
+			for (size_t w = 0; w < bufs[re].size_words; w++)
+				shadow[re][w] = strela_buffer_to_ptr(dev, bufs[re])[w] = gen++;
+		}
+
+		/* Push everything out of the caches, so the next read comes from
+		 * memory. */
+		for (size_t i = 0; i < EVICT; i += 32)
+			evict[i]++;
+
+		for (int i = 0; ok && i < BUFS; i++) {
+			strela_word *ptr = strela_buffer_to_ptr(dev, bufs[i]);
+			strela_buffer seen = strela_buffer_from_ptr(dev, ptr);
+
+			ok = seen.size_words == bufs[i].size_words;
+			CHECK(ok, "round %d: the header of buffer %d says %zu words, not %zu",
+			      r, i, seen.size_words, bufs[i].size_words);
+			for (size_t w = 0; ok && w < bufs[i].size_words; w++) {
+				ok = ptr[w] == shadow[i][w];
+				CHECK(ok, "round %d (in %d, out %d, realloc %d): buffer %d word %zu is 0x%x, expected 0x%x",
+				      r, in, out, re, i, w, ptr[w], shadow[i][w]);
+			}
+		}
+	}
+	CHECK(strela_dev_ok(dev), "the library failed: %d", strela_dev_get_err(dev).errnum);
+
+	free((void *)evict);
+	strela_dev_deinit(dev);
 }
 
 static void test_lib_partial_relu(int fd)
@@ -1281,7 +1403,9 @@ static const struct test timeout_tests[] = {
 static const struct test library_tests[] = {
 	{ "basic functionality", test_lib_basic },
 	{ "memory can be exhausted",  test_lib_allocator_exhaustion },
+	{ "freeing all kernels frees each once",  test_lib_kernel_free_all },
 	{ "four way bypass",  test_lib_bypass },
+	{ "syncs leave neighbours and headers alone",  test_lib_sync_stress },
 	// { "test partial relu",  test_lib_partial_relu },
 };
 
