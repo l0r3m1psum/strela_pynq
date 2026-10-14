@@ -170,7 +170,7 @@ accel_iter_next(accel_iter *iter) {
 }
 
 int
-strela_device_count(unsigned *count) {
+strela_dev_count(unsigned *count) {
 	*count = 0;
 
 	accel_iter iter = accel_iter_make();

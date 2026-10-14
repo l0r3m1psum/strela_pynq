@@ -961,7 +961,7 @@ static void test_lib_kernel_free_all(int fd)
 
 static void test_lib_basic(int fd) {
 	unsigned count = 0;
-	CHECK(strela_device_count(&count) != -1, "Can't count STRELAs");
+	CHECK(strela_dev_count(&count) != -1, "Can't count STRELAs");
 
 	for (unsigned i = 0; i < count; i++) {
 		strela_dev *dev = strela_dev_init(i);
