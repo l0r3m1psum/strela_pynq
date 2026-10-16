@@ -163,12 +163,10 @@ typedef enum { STRELA_JOB_PENDING, STRELA_JOB_OK, STRELA_JOB_FAILED } strela_job
 strela_job       strela_job_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
 void             strela_job_free(strela_dev *dev, strela_job job);
 void             strela_job_free_all(strela_dev *dev);
-#if 0
 bool             strela_job_submit(strela_dev *dev, strela_job job);   /* false: queue full */
 strela_job_state strela_job_poll(strela_dev *dev, strela_job job);
 bool             strela_job_wait(strela_dev *dev, strela_job job, int timeout_ms);
 int              strela_job_fd(strela_dev *dev, strela_job job);       /* pollable */
-#endif
 
 // TODO(Diego): implementare queste vecchie funzioni in termini del sistema dei lavori.
 void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);

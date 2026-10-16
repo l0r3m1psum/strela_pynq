@@ -1405,6 +1405,30 @@ static void test_lib_job_resource_exhaustion(int fd) {
 	}
 }
 
+static void
+test_lib_job_submit_and_wait(int fd) {
+	strela_dev *dev = strela_dev_init(strela_minor(fd));
+
+	strela_kernel kernel = strela_kernel_alloc(dev);
+	strela_kernel_set(dev, kernel, bypass_kernel_bitstream);
+
+	strela_conf conf = {0};
+
+	for (int i = 0; i < 10; i++) {
+		strela_job job = strela_job_config(dev, kernel, &conf);
+		CHECK(job.valid, "job not valid");
+		strela_job_submit(dev, job);
+		CHECK(strela_dev_ok(dev), "could not submit job");
+		strela_job_submit(dev, job);
+		CHECK(!strela_dev_ok(dev), "it should not be ok to submit the same job two times");
+		strela_dev_reset_err(dev);
+		strela_job_wait(dev, job, 2000);
+		strela_job_free(dev, job);
+	}
+
+	// TODO(Diego): submit an array and wait for its completion.
+}
+
 struct test {
 	const char *name;
 	void (*fn)(int fd);
@@ -1449,6 +1473,7 @@ static const struct test library_tests[] = {
 	{ "four way bypass",  test_lib_bypass },
 	{ "syncs leave neighbours and headers alone",  test_lib_sync_stress },
 	{ "basic job system resource exhaustion" , test_lib_job_resource_exhaustion },
+	{ "submit and wait for some jobs", test_lib_job_submit_and_wait },
 	// { "test partial relu",  test_lib_partial_relu },
 };
 

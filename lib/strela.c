@@ -61,6 +61,7 @@ struct strela_dev {
 	unsigned kernels_bo_handle;
 	void *kernels_bo_map;
 
+	// TODO(Diego): put a job  here to support old libray funcitons...
 	struct drm_strela_submit submit; // NOTE(Diego): will be moved to strela_job_slot
 	bool configured; /* implies initialized and not initialized implies not configured */
 
@@ -746,40 +747,45 @@ strela_job_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 	return res;
 }
 
-#define IN_BOUND(i, a) ((i) >= 0 && (i) < COUNTOF(a))
+static unsigned
+phase_singleton(enum strela_job_phase phase) { return 1u << phase; }
+
+static bool
+phase_is_in(enum strela_job_phase phase, unsigned bit_set) {
+	bool membership_test = !(phase_singleton(phase) & bit_set);
+	return membership_test;
+}
+
+static struct strela_job_slot *
+strela_job_slot_get(strela_dev *dev, strela_job job, unsigned valid_phases_set) {
+	struct strela_job_slot *slot = NULL;
+	if (strela_dev_ok(dev)) {
+		if (!job.valid || job.handle >= COUNTOF(dev->jobs)
+			|| phase_is_in(dev->jobs[job.handle].phase, valid_phases_set)) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		} else {
+			slot = &dev->jobs[job.handle];
+		}
+	}
+	assert((bool) slot == strela_dev_ok(dev));
+	return slot;
+}
 
 void
 strela_job_free(strela_dev *dev, strela_job job) {
-	if (strela_dev_ok(dev)) {
-		if (!job.valid) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		} else if (!IN_BOUND(job.handle, dev->jobs)) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		}
-	}
+	unsigned all_phases = (unsigned)-1;
+	struct strela_job_slot *slot = strela_job_slot_get(dev, job, all_phases);
 
 	if (strela_dev_ok(dev)) {
-		struct strela_job_slot *slot = &dev->jobs[job.handle];
 		strela_job_slot_release(dev, slot);
 	}
 }
 
 bool
 strela_job_submit(strela_dev *dev, strela_job job) {
-	if (strela_dev_ok(dev)) {
-		if (!job.valid) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		} else if (!IN_BOUND(job.handle, dev->jobs)) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		}
-	}
-
-	struct strela_job_slot *slot = &dev->jobs[job.handle];
-	if (strela_dev_ok(dev)) {
-		if (slot->phase != STRELA_JOB_CONFIGURED) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		}
-	}
+	struct strela_job_slot *slot = strela_job_slot_get(
+		dev, job, phase_singleton(STRELA_JOB_CONFIGURED)
+	);
 
 	if (strela_dev_ok(dev)) {
 		if (ioctl(dev->fd, DRM_IOCTL_STRELA_SUBMIT, &slot->submit) == -1) {
@@ -805,27 +811,83 @@ strela_job_submit(strela_dev *dev, strela_job job) {
 		}
 	}
 
-	// TODO(Diego): right now we always return false, mixing monadic sticky
-	// errors with returns is a bit of a PITA.
-	return false;
+	// NOTE(Diego): Does this really make sense?
+	return strela_dev_ok(dev);
+}
+
+#include <poll.h>
+
+/* Waits up to timeout_ms (0: just look, -1: forever). */
+static void
+strela_job_update(strela_dev *dev, struct strela_job_slot *slot, int timeout_ms) {
+	assert(slot->phase > STRELA_JOB_CONFIGURED);
+	/* The job is either submitted or done. */
+	if (slot->phase != STRELA_JOB_DONE) {
+		struct pollfd pfd = { .fd = slot->fence_fd, .events = POLLIN };
+		int ready = poll(&pfd, 1, timeout_ms);
+		if (ready == -1) {
+			if (errno != EINTR) {
+				perror("poll");
+				dev->res.errnum = errno;
+			} else {
+				/* EINTR: still pending, the caller may retry */
+			}
+		} else if (ready == 0){
+			/* still running */
+		} else {
+			struct sync_file_info info = { 0 };
+			if (ioctl(slot->fence_fd, SYNC_IOC_FILE_INFO, &info) == -1) {
+				perror("SYNC_IOC_FILE_INFO");
+				dev->res.errnum = errno;
+			} else {
+				slot->status = info.status;   /* 1, or the job's negative errno */
+				slot->phase = STRELA_JOB_DONE;
+			}
+		}
+	}
 }
 
 strela_job_state
 strela_job_poll(strela_dev *dev, strela_job job) {
-	abort();
-	return STRELA_JOB_FAILED;
+	struct strela_job_slot *slot = strela_job_slot_get(
+		dev, job,
+		phase_singleton(STRELA_JOB_SUBMITTED) | phase_singleton(STRELA_JOB_DONE)
+	);
+
+	strela_job_state state = STRELA_JOB_FAILED;
+	if (strela_dev_ok(dev)) {
+		strela_job_update(dev, slot, 0);
+		if (slot->phase != STRELA_JOB_DONE)
+			state = STRELA_JOB_PENDING;
+		else {
+			state = slot->status > 0 ? STRELA_JOB_OK : STRELA_JOB_FAILED;
+		}
+	}
+
+	return state;
 }
 
 bool
 strela_job_wait(strela_dev *dev, strela_job job, int timeout_ms) {
-	abort();
-	return false;
+	struct strela_job_slot *slot = strela_job_slot_get(
+		dev, job,
+		phase_singleton(STRELA_JOB_SUBMITTED) | phase_singleton(STRELA_JOB_DONE)
+	);
+
+	if (strela_dev_ok(dev)) {
+		strela_job_update(dev, slot, timeout_ms);
+	}
+
+	return strela_dev_ok(dev) && slot->phase == STRELA_JOB_DONE;
 }
 
 int
 strela_job_fd(strela_dev *dev, strela_job job) {
-	abort();
-	return -1;
+	struct strela_job_slot *slot = strela_job_slot_get(
+		dev, job,
+		phase_singleton(STRELA_JOB_SUBMITTED) | phase_singleton(STRELA_JOB_DONE)
+	);
+	return strela_dev_ok(dev) ? slot->fence_fd : -1;
 }
 
 /* Device submodule ***********************************************************/
