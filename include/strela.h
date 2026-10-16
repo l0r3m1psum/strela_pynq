@@ -4,7 +4,8 @@
  * This library uses "monadic" error handling for user convenience.
  * https://youtu.be/QpAhX-gsHMs?si=UzgvcwxAFiDjpbkB&t=1391
  *
- * Unrecoverable programmer error will cause abort(3) to be called.
+ * Unrecoverable programmer error will cause abort(3) to be called. This library
+ * very much expects to be used by a single thread.
  *
  * TODO: functions that abort if called when the library has an error should
  * have a special suffix like strela_buffer_to_ptrA?
@@ -60,12 +61,20 @@ typedef struct strela_dev strela_dev;
 /* This function returns 0 on success and -1 if an error happens. An incomplete
  * count could be returned. If an error occurs errno is set. */
 int         strela_dev_count(unsigned *count);
-/* The pointer returned by this function is never null.  */
+/* The pointer returned by this function is never null. This function can be
+ * called multiple times on the same device and it just reinitializes its
+ * resources i.e. allocators and jobs. */
 strela_dev *strela_dev_init(unsigned which_strela);
 void        strela_dev_deinit(strela_dev *dev);
 bool        strela_dev_ok(strela_dev *dev);
 void        strela_dev_reset_err(strela_dev *dev);
 strela_res  strela_dev_get_err(strela_dev *dev);
+/* Being initialized essentially means that the file descriptor is available,
+ * together with the handles and address maps for both kernels and tensors...
+ * This makes it possible for parts of the library to fail but still recover
+ * e.g. tensor allocation can fail but if the device is not initialized there is
+ * part of the address space mapped for it and we can't recover from that error
+ * by freeing other tensors and then calling strela_dev_reset_err. */
 bool        strela_dev_initialized(strela_dev *dev);
 
 /* STRELA kernels bitstream management. There is no need to do memory
@@ -74,6 +83,7 @@ bool        strela_dev_initialized(strela_dev *dev);
 
 typedef struct strela_kernel strela_kernel;
 struct strela_kernel {
+	// TODO(Diego): the kernel should keep track it it has been set or not.
 	bool valid;
 	unsigned handle;
 };
@@ -142,10 +152,6 @@ struct strela_conf {
 	size_t out3_offset, out3_count;
 };
 
-void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
-void strela_execute(strela_dev *dev);
-
-#if 0
 typedef struct strela_job strela_job;
 struct strela_job {
 	bool valid;
@@ -154,12 +160,19 @@ struct strela_job {
 
 typedef enum { STRELA_JOB_PENDING, STRELA_JOB_OK, STRELA_JOB_FAILED } strela_job_state;
 
+strela_job       strela_job_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
+void             strela_job_free(strela_dev *dev, strela_job job);
+void             strela_job_free_all(strela_dev *dev);
+#if 0
 bool             strela_job_submit(strela_dev *dev, strela_job job);   /* false: queue full */
 strela_job_state strela_job_poll(strela_dev *dev, strela_job job);
 bool             strela_job_wait(strela_dev *dev, strela_job job, int timeout_ms);
 int              strela_job_fd(strela_dev *dev, strela_job job);       /* pollable */
-void             strela_job_destroy(strela_dev *dev, strela_job job);
 #endif
+
+// TODO(Diego): implementare queste vecchie funzioni in termini del sistema dei lavori.
+void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
+void strela_execute(strela_dev *dev);
 
 #ifdef STRELA_TESTING_BITSTREAMS
 /* Configured for four colums

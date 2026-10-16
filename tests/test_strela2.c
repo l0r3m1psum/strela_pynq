@@ -1363,6 +1363,48 @@ static void test_starved_output(int fd)
 	}
 }
 
+
+static void test_lib_job_resource_exhaustion(int fd) {
+	strela_dev *dev = strela_dev_init(strela_minor(fd));
+
+	strela_kernel kernel = strela_kernel_alloc(dev);
+	strela_kernel_set(dev, kernel, bypass_kernel_bitstream);
+
+	strela_conf conf = {0};
+
+	for (int i = 0; i < 200; i++) {
+		strela_job job = strela_job_config(dev, kernel, &conf);
+		CHECK(job.valid, "job not valid");
+		strela_job_free(dev, job);
+	}
+
+	// This should be a NOP at this point.
+	strela_job_free_all(dev);
+
+	{
+		strela_job job = {0};
+		for (int i = 0; i < 200; i++) {
+			job = strela_job_config(dev, kernel, &conf);
+			(void) job;
+		}
+		CHECK(!job.valid, "job shold not be valid");
+	}
+
+	/* We purposefully don't clean the jobs and leave them unconfigured
+	 * strela_dev_init should clean jobs. */
+	dev = strela_dev_init(strela_minor(fd));
+
+	{
+		/* Things before device initialization are invalidated. */
+		strela_kernel kernel = strela_kernel_alloc(dev);
+		strela_kernel_set(dev, kernel, bypass_kernel_bitstream);
+
+		strela_job job = strela_job_config(dev, kernel, &conf);
+		CHECK(job.valid, "job not valid");
+		strela_job_free(dev, job);
+	}
+}
+
 struct test {
 	const char *name;
 	void (*fn)(int fd);
@@ -1406,6 +1448,7 @@ static const struct test library_tests[] = {
 	{ "freeing all kernels frees each once",  test_lib_kernel_free_all },
 	{ "four way bypass",  test_lib_bypass },
 	{ "syncs leave neighbours and headers alone",  test_lib_sync_stress },
+	{ "basic job system resource exhaustion" , test_lib_job_resource_exhaustion },
 	// { "test partial relu",  test_lib_partial_relu },
 };
 
