@@ -41,10 +41,6 @@ struct strela_job_slot {
 	 * the eight column bindings. out_syncobj is this job's own. */
 	struct drm_strela_submit submit;
 
-	/* Used by strela_execute() today in dev->syncobj_handle. Created with the
-	 * slot and reused on every submit: the driver replaces the fence in it. */
-	__u32 syncobj_handle;
-
 	/* The fence of the current submit, exported as a sync file. This is
 	 * the pollable fd, and SYNC_IOC_FILE_INFO on it gives the status.
 	 * -1 unless SUBMITTED or DONE. */
@@ -65,7 +61,6 @@ struct strela_dev {
 	unsigned kernels_bo_handle;
 	void *kernels_bo_map;
 
-	unsigned syncobj_handle; // NOTE(Diego): will be moved to strela_job_slot
 	struct drm_strela_submit submit; // NOTE(Diego): will be moved to strela_job_slot
 	bool configured; /* implies initialized and not initialized implies not configured */
 
@@ -546,7 +541,8 @@ strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 				{ tensors, conf->out2_offset, conf->out2_count },
 				{ tensors, conf->out3_offset, conf->out3_count },
 			},
-			.out_syncobj = dev->syncobj_handle,
+			/* Created by strela_dev_init(); kept across configurations. */
+			.out_syncobj = dev->submit.out_syncobj,
 		};
 
 		dev->configured = true;
@@ -617,14 +613,14 @@ strela_execute(strela_dev *dev) {
 	}
 
 	if (strela_dev_ok(dev)) {
-		if (ioctl_syncobj_wait(dev->fd, dev->syncobj_handle, 1000) == -1) {
+		if (ioctl_syncobj_wait(dev->fd, dev->submit.out_syncobj, 1000) == -1) {
 			perror("DRM_IOCTL_SYNCOBJ_WAIT");
 			dev->res.errnum = errno;
 		}
 	}
 
 	if (strela_dev_ok(dev)) {
-		int status = ioctl_syncobj_status(dev->fd, dev->syncobj_handle);
+		int status = ioctl_syncobj_status(dev->fd, dev->submit.out_syncobj);
 		if (status < 0) {
 			errno = -status;
 			perror("STRELA job failed");
@@ -653,8 +649,8 @@ strela_job_slot_release(strela_dev *dev, struct strela_job_slot *slot) {
 				abort();
 			}
 		}
-		if (slot->syncobj_handle != 0) {
-			struct drm_syncobj_destroy args = { .handle = slot->syncobj_handle };
+		if (slot->submit.out_syncobj != 0) {
+			struct drm_syncobj_destroy args = { .handle = slot->submit.out_syncobj };
 			if (ioctl(dev->fd, DRM_IOCTL_SYNCOBJ_DESTROY, &args) == -1) {
 				perror("DRM_IOCTL_SYNCOBJ_DESTROY");
 				abort();
@@ -717,7 +713,6 @@ strela_job_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 		__u32 tensors = dev->tensors_bo_handle;
 
 		job->phase = STRELA_JOB_CONFIGURED;
-		job->syncobj_handle = syncobj_create.handle;
 		job->fence_fd = -1;
 		job->submit = (struct drm_strela_submit) {
 			.config = {
@@ -737,7 +732,7 @@ strela_job_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 				{ tensors, conf->out2_offset, conf->out2_count },
 				{ tensors, conf->out3_offset, conf->out3_count },
 			},
-			.out_syncobj = dev->syncobj_handle,
+			.out_syncobj = syncobj_create.handle,
 		};
 
 		res.valid = true;
@@ -771,20 +766,47 @@ strela_job_free(strela_dev *dev, strela_job job) {
 
 bool
 strela_job_submit(strela_dev *dev, strela_job job) {
-	abort();
-#if 0
-	struct drm_syncobj_handle export = {
-		.handle = syncobj_create.handle,
-		.flags = DRM_SYNCOBJ_HANDLE_TO_FD_FLAGS_EXPORT_SYNC_FILE,
-		.fd = -1,
-	};
 	if (strela_dev_ok(dev)) {
-		if (ioctl(dev->fd, DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD, &export) == -1) {
-			perror("DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD");
+		if (!job.valid) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		} else if (!IN_BOUND(job.handle, dev->jobs)) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		}
+	}
+
+	struct strela_job_slot *slot = &dev->jobs[job.handle];
+	if (strela_dev_ok(dev)) {
+		if (slot->phase != STRELA_JOB_CONFIGURED) {
+			dev->res.errnum = -STRELA_ERR_BAD_ARG;
+		}
+	}
+
+	if (strela_dev_ok(dev)) {
+		if (ioctl(dev->fd, DRM_IOCTL_STRELA_SUBMIT, &slot->submit) == -1) {
+			perror("DRM_IOCTL_STRELA_SUBMIT");
 			dev->res.errnum = errno;
 		}
 	}
-#endif
+
+	if (strela_dev_ok(dev)) {
+		/* The job is in the driver from here on, whatever the export does. */
+		slot->phase = STRELA_JOB_SUBMITTED;
+
+		struct drm_syncobj_handle export = {
+			.handle = slot->submit.out_syncobj,
+			.flags = DRM_SYNCOBJ_HANDLE_TO_FD_FLAGS_EXPORT_SYNC_FILE,
+			.fd = -1,
+		};
+		if (ioctl(dev->fd, DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD, &export) == -1) {
+			perror("DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD");
+			dev->res.errnum = errno;
+		} else {
+			slot->fence_fd = export.fd;
+		}
+	}
+
+	// TODO(Diego): right now we always return false, mixing monadic sticky
+	// errors with returns is a bit of a PITA.
 	return false;
 }
 
@@ -945,7 +967,7 @@ strela_dev_init(unsigned which_strela) {
 			dev->kernels_bo_handle = gem_new_kernels_args.handle;
 			dev->kernels_bo_map = kernels_pool_base;
 			dev->configured = false;
-			dev->syncobj_handle = syncobj_create.handle;
+			dev->submit.out_syncobj = syncobj_create.handle;
 			pool_init(
 				&dev->kernel_pool,
 				dev->kernels_bo_map,
