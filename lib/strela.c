@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/sync_file.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -501,23 +502,6 @@ strela_buffer_inval(
 
 /* Job summodule **************************************************************/
 
-static int
-ioctl_syncobj_wait(int fd, __u32 handle, int timeout_ms)
-{
-	struct timespec ts = { 0 };
-	struct drm_syncobj_wait args = {
-		.handles = (__u64)(uintptr_t)&handle,
-		.count_handles = 1,
-		.flags = DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL,
-	};
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	args.timeout_nsec = (__s64)ts.tv_sec * 1000000000 + ts.tv_nsec +
-			    (__s64)timeout_ms * 1000000;
-
-	return ioctl(fd, DRM_IOCTL_SYNCOBJ_WAIT, &args);
-}
-
 /* A wait only says the fence signalled, not whether the job failed. Returns 1
  * if it completed, 0 if it is still pending, or a negative errno: the job's
  * own (-ECANCELED after a timeout) or that of a failed ioctl. */
@@ -550,13 +534,49 @@ ioctl_syncobj_status(int fd, __u32 handle)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// TODO(Diego): job free should wait for them to finish...
-// TODO(Diego): we can use handle 0 as always an invalid job....
+// TODO(Diego): we can use handle 0 as always an invalid job this could simplify
+// things?
 ////////////////////////////////////////////////////////////////////////////////
+
+// TODO(Diego): some system call can fail with EINTR and we should decide how to
+// handle that case.
+
+/* Blocks until a submitted job is out of the driver. This is a good thing to
+ * avoid jobs to bee still running while doing buffer_free and buffer_alloc
+ * since if we don't wait the job may still be reading or writning to this
+ * locations. */
+static void
+strela_job_slot_finish(strela_dev *dev, struct strela_job_slot *slot) {
+	if (slot->phase != STRELA_JOB_SUBMITTED)
+		return;
+
+	if (slot->fence_fd != -1) {
+		struct pollfd pfd = { .fd = slot->fence_fd, .events = POLLIN };
+		/* ENOMEM should be impossible. */
+		while (poll(&pfd, 1, -1) == -1) {
+			perror("poll");
+			abort();      /* cannot know it is safe to release */
+		}
+	} else {
+		/* We need to be able to free also jobs that failed in the middle of
+		 * strela_job_submit. */
+		struct drm_syncobj_wait args = {
+			.handles = (__u64)(uintptr_t)&slot->submit.out_syncobj,
+			.count_handles = 1,
+			.timeout_nsec = INT64_MAX,
+		};
+		while (ioctl(dev->fd, DRM_IOCTL_SYNCOBJ_WAIT, &args) == -1) {
+			perror("DRM_IOCTL_SYNCOBJ_WAIT");
+			abort();
+		}
+	}
+	slot->phase = STRELA_JOB_DONE;
+}
 
 static void
 strela_job_slot_release(strela_dev *dev, struct strela_job_slot *slot) {
 	assert(strela_dev_initialized(dev));
+	strela_job_slot_finish(dev, slot);
 	/* This is because the slot->fence_fd is initialized to 0 by
 	 * memset(dev->jobs, 0, sizeof dev->jobs) in strela_dev_init leaves FDs to 0.
 	 */
@@ -580,6 +600,11 @@ strela_job_slot_release(strela_dev *dev, struct strela_job_slot *slot) {
 	}
 }
 
+// NOTE(Diego): This makes handles to valid jobs invalid. including, of course
+// backward_compat_job in the strela_dev instace. Right now it is hard for me to
+// reason about this. Maybe using "generational handles" can solve this problem
+// but it is overkill?
+// https://floooh.github.io/2018/06/17/handles-vs-pointers.html
 void
 strela_job_free_all(strela_dev *dev) {
 	if (strela_dev_ok(dev)) {
@@ -741,8 +766,6 @@ strela_job_submit(strela_dev *dev, strela_job job) {
 	// NOTE(Diego): Does this really make sense?
 	return strela_dev_ok(dev);
 }
-
-#include <poll.h>
 
 /* Waits up to timeout_ms (0: just look, -1: forever). */
 static void
@@ -992,6 +1015,7 @@ strela_dev_init(unsigned which_strela) {
 void
 strela_dev_deinit(strela_dev *dev) {
 	if (dev->initialized) {
+		strela_job_free_all(dev);
 		strela_dev_deinit_internal(
 			dev->tensors_bo_map, STRELA_TENSOR_MEMORY_SIZE,
 			dev->kernels_bo_map, STRELA_KERNEL_MEMORY_SIZE,
@@ -1002,7 +1026,7 @@ strela_dev_deinit(strela_dev *dev) {
 	memset(dev, 0, sizeof *dev);
 }
 
-/*Old Execution submodule *****************************************************/
+/* Old Execution submodule ****************************************************/
 
 void
 strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {

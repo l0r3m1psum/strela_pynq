@@ -1430,7 +1430,19 @@ test_lib_job_submit_and_wait(int fd) {
 		strela_job_free(dev, job);
 	}
 
-	// TODO(Diego): submit an array and wait for its completion.
+	strela_job jobs[10] = {0};
+	for (int i = 0; i < 10; i++) {
+		jobs[i] = strela_job_config(dev, kernel, &conf);
+		CHECK(strela_dev_ok(dev), "could not config job %d", i);
+	}
+	for (int i = 0; i < 10; i++) {
+		strela_job_submit(dev, jobs[i]);
+		CHECK(strela_dev_ok(dev), "could not submit job %d", i);
+	}
+	for (int i = 0; i < 10; i++) {
+		bool done = strela_job_wait(dev, jobs[i], 2000);
+		CHECK(done, "job %d did not finish", i);
+	}
 }
 
 struct test {
