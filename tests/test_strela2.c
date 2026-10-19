@@ -1038,8 +1038,8 @@ static void test_lib_bypass(int fd)
 	strela_buffer_flush(dev, input, 0, len);
 	strela_buffer_flush(dev, output, 0, len);
 	// There is no problem executing multiple times with the same configuration.
-	strela_execute(dev);
-	strela_execute(dev);
+	for (int i = 0; i < 2; i++)
+		CHECK(strela_execute(dev) == STRELA_JOB_OK, "execution %d did not complete", i);
 	// The CPU must see what the device wrote.
 	strela_buffer_inval(dev, output, 0, alloc_len);
 	// Not necessary to free here but this is the earliest time that it is
@@ -1115,7 +1115,8 @@ static void test_lib_sync_stress(int fd)
 			.out0_offset = bufs[out].offset_words_from_base, .out0_count = n,
 		};
 		strela_config(dev, kernel, &conf);
-		strela_execute(dev);
+		ok = strela_execute(dev) == STRELA_JOB_OK;
+		CHECK(ok, "round %d: the job did not complete", r);
 		strela_buffer_inval(dev, bufs[out], 0, bufs[out].size_words);
 		memcpy(shadow[out], shadow[in], n * sizeof(strela_word));
 
@@ -1201,7 +1202,7 @@ static void test_lib_partial_relu(int fd)
 	strela_config(dev, kernel, &conf);
 	strela_kernel_free(dev, kernel);
 	strela_buffer_flush(dev, input_output, 0, len);
-	strela_execute(dev);
+	CHECK(strela_execute(dev) == STRELA_JOB_OK, "the job did not complete");
 	strela_buffer_inval(dev, input_output, 0, alloc_len);
 
 	CHECK(output_ref && strela_dev_ok(dev),
@@ -1417,12 +1418,15 @@ test_lib_job_submit_and_wait(int fd) {
 	for (int i = 0; i < 10; i++) {
 		strela_job job = strela_job_config(dev, kernel, &conf);
 		CHECK(job.valid, "job not valid");
-		strela_job_submit(dev, job);
-		CHECK(strela_dev_ok(dev), "could not submit job");
-		strela_job_submit(dev, job);
-		CHECK(!strela_dev_ok(dev), "it should not be ok to submit the same job two times");
-		strela_dev_reset_err(dev);
-		strela_job_wait(dev, job, 2000);
+		/* Executin i.e. submit+wait is idempotent. */
+		for (int i = 0; i < 3; i++) {
+			strela_job_submit(dev, job);
+			CHECK(strela_dev_ok(dev), "could not submit job");
+			strela_job_submit(dev, job);
+			CHECK(!strela_dev_ok(dev), "it should not be ok to submit the same job two times");
+			strela_dev_reset_err(dev);
+			strela_job_wait(dev, job, 2000);
+		}
 		strela_job_free(dev, job);
 	}
 

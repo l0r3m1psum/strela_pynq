@@ -168,9 +168,8 @@ strela_job_state strela_job_poll(strela_dev *dev, strela_job job);
 bool             strela_job_wait(strela_dev *dev, strela_job job, int timeout_ms);
 int              strela_job_fd(strela_dev *dev, strela_job job);       /* pollable */
 
-// TODO(Diego): implementare queste vecchie funzioni in termini del sistema dei lavori.
 void strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf);
-void strela_execute(strela_dev *dev);
+strela_job_state strela_execute(strela_dev *dev);
 
 #ifdef STRELA_TESTING_BITSTREAMS
 /* Configured for four colums

@@ -36,18 +36,8 @@ enum strela_job_phase {
 
 struct strela_job_slot {
 	enum strela_job_phase phase;
-
-	/* What strela_config() builds today in dev->submit: the kernel and
-	 * the eight column bindings. out_syncobj is this job's own. */
 	struct drm_strela_submit submit;
-
-	/* The fence of the current submit, exported as a sync file. This is
-	 * the pollable fd, and SYNC_IOC_FILE_INFO on it gives the status.
-	 * -1 unless SUBMITTED or DONE. */
-	/* This is what ioctl_syncobj_status does internally with
-	 * DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD*/
 	int fence_fd;
-
 	/* Valid when DONE: 1, or the job's negative errno. Per job, so a
 	 * timeout does not touch the device's sticky error. */
 	int status;
@@ -61,9 +51,7 @@ struct strela_dev {
 	unsigned kernels_bo_handle;
 	void *kernels_bo_map;
 
-	// TODO(Diego): put a job  here to support old libray funcitons...
-	struct drm_strela_submit submit; // NOTE(Diego): will be moved to strela_job_slot
-	bool configured; /* implies initialized and not initialized implies not configured */
+	strela_job backward_compat_job;
 
 	bool initialized;
 	strela_res res;
@@ -511,44 +499,7 @@ strela_buffer_inval(
 	);
 }
 
-/*Old Execution submodule *****************************************************/
-
-void
-strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
-	if (strela_dev_ok(dev)) {
-		if (!kernel.valid || kernel.handle >= 128) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		}
-	}
-
-	if (strela_dev_ok(dev)) {
-		__u32 tensors = dev->tensors_bo_handle;
-
-		dev->submit = (struct drm_strela_submit) {
-			.config = {
-				.handle = dev->kernels_bo_handle,
-				.offset = kernel.handle * STRELA_KERNEL_SIZE,
-				.count = STRELA_KERNEL_SIZE,
-			},
-			.inputs = {
-				{ tensors, conf->inp0_offset, conf->inp0_count, conf->inp0_stride },
-				{ tensors, conf->inp1_offset, conf->inp1_count, conf->inp1_stride },
-				{ tensors, conf->inp2_offset, conf->inp2_count, conf->inp2_stride },
-				{ tensors, conf->inp3_offset, conf->inp3_count, conf->inp3_stride },
-			},
-			.outputs = {
-				{ tensors, conf->out0_offset, conf->out0_count },
-				{ tensors, conf->out1_offset, conf->out1_count },
-				{ tensors, conf->out2_offset, conf->out2_count },
-				{ tensors, conf->out3_offset, conf->out3_count },
-			},
-			/* Created by strela_dev_init(); kept across configurations. */
-			.out_syncobj = dev->submit.out_syncobj,
-		};
-
-		dev->configured = true;
-	}
-}
+/* Job summodule **************************************************************/
 
 static int
 ioctl_syncobj_wait(int fd, __u32 handle, int timeout_ms)
@@ -598,44 +549,10 @@ ioctl_syncobj_status(int fd, __u32 handle)
 	return ret;
 }
 
-void
-strela_execute(strela_dev *dev) {
-	if (strela_dev_ok(dev)) {
-		if (!dev->configured) {
-			dev->res.errnum = -STRELA_ERR_BAD_ARG;
-		}
-	}
-
-	if (strela_dev_ok(dev)) {
-		if (ioctl(dev->fd, DRM_IOCTL_STRELA_SUBMIT, &dev->submit) == -1) {
-			perror("DRM_IOCTL_STRELA_SUBMIT");
-			dev->res.errnum = errno;
-		}
-	}
-
-	if (strela_dev_ok(dev)) {
-		if (ioctl_syncobj_wait(dev->fd, dev->submit.out_syncobj, 1000) == -1) {
-			perror("DRM_IOCTL_SYNCOBJ_WAIT");
-			dev->res.errnum = errno;
-		}
-	}
-
-	if (strela_dev_ok(dev)) {
-		int status = ioctl_syncobj_status(dev->fd, dev->submit.out_syncobj);
-		if (status < 0) {
-			errno = -status;
-			perror("STRELA job failed");
-			dev->res.errnum = -status;
-		}
-	}
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // TODO(Diego): job free should wait for them to finish...
 // TODO(Diego): we can use handle 0 as always an invalid job....
 ////////////////////////////////////////////////////////////////////////////////
-
-/* Job summodule **************************************************************/
 
 static void
 strela_job_slot_release(strela_dev *dev, struct strela_job_slot *slot) {
@@ -679,7 +596,7 @@ strela_job_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
 	strela_job res = {0};
 
 	if (strela_dev_ok(dev)) {
-		if (!kernel.valid) {
+		if (!kernel.valid || kernel.handle >= 128) {
 			dev->res.errnum = -STRELA_ERR_BAD_ARG;
 		}
 	}
@@ -784,7 +701,7 @@ strela_job_free(strela_dev *dev, strela_job job) {
 bool
 strela_job_submit(strela_dev *dev, strela_job job) {
 	struct strela_job_slot *slot = strela_job_slot_get(
-		dev, job, phase_singleton(STRELA_JOB_CONFIGURED)
+		dev, job, phase_singleton(STRELA_JOB_CONFIGURED) | phase_singleton(STRELA_JOB_DONE)
 	);
 
 	if (strela_dev_ok(dev)) {
@@ -795,6 +712,16 @@ strela_job_submit(strela_dev *dev, strela_job job) {
 	}
 
 	if (strela_dev_ok(dev)) {
+		/* We want to allow at the API level to execute multiple times the same
+		 * job back-to-back i.e. submit+wait. Logically it should be an
+		 * idempotent operation. */
+		if (slot->phase == STRELA_JOB_DONE) {
+			if (close(slot->fence_fd) == -1) {
+				perror("close");
+				abort();
+			}
+		}
+
 		/* The job is in the driver from here on, whatever the export does. */
 		slot->phase = STRELA_JOB_SUBMITTED;
 
@@ -856,7 +783,8 @@ strela_job_poll(strela_dev *dev, strela_job job) {
 
 	strela_job_state state = STRELA_JOB_FAILED;
 	if (strela_dev_ok(dev)) {
-		strela_job_update(dev, slot, 0);
+		unsigned empty_set = 0;
+		strela_job_update(dev, slot, empty_set);
 		if (slot->phase != STRELA_JOB_DONE)
 			state = STRELA_JOB_PENDING;
 		else {
@@ -1013,14 +941,6 @@ strela_dev_init(unsigned which_strela) {
 			}
 		}
 
-		struct drm_syncobj_create syncobj_create = { 0 };
-		if (dev->res.errnum == STRELA_ERR_OK) {
-			if (ioctl(fd, DRM_IOCTL_SYNCOBJ_CREATE, &syncobj_create) == -1) {
-				perror("DRM_IOCTL_SYNCOBJ_CREATE");
-				dev->res.errnum = errno;
-			}
-		}
-
 		if (dev->res.errnum == STRELA_ERR_OK) {
 			dev->fd = fd;
 			dev->initialized = true;
@@ -1028,8 +948,6 @@ strela_dev_init(unsigned which_strela) {
 			dev->tensors_bo_map = tensors_free_list_base;
 			dev->kernels_bo_handle = gem_new_kernels_args.handle;
 			dev->kernels_bo_map = kernels_pool_base;
-			dev->configured = false;
-			dev->submit.out_syncobj = syncobj_create.handle;
 			pool_init(
 				&dev->kernel_pool,
 				dev->kernels_bo_map,
@@ -1042,7 +960,8 @@ strela_dev_init(unsigned which_strela) {
 				dev->tensors_bo_map,
 				STRELA_TENSOR_MEMORY_SIZE
 			);
-			/* This should not be needed bu we do it just in case... */
+			memset(&dev->backward_compat_job, 0, sizeof dev->backward_compat_job);
+			/* This should not be needed but we do it just in case... */
 			memset(dev->jobs, 0, sizeof dev->jobs);
 		} else {
 			assert(!dev->initialized);
@@ -1081,4 +1000,26 @@ strela_dev_deinit(strela_dev *dev) {
 		/* No need to free_all the allocators. */
 	}
 	memset(dev, 0, sizeof *dev);
+}
+
+/*Old Execution submodule *****************************************************/
+
+void
+strela_config(strela_dev *dev, strela_kernel kernel, strela_conf *conf) {
+	if (dev->backward_compat_job.valid) {
+		strela_job_free(dev, dev->backward_compat_job);
+	}
+	dev->backward_compat_job = strela_job_config(dev, kernel, conf);
+}
+
+strela_job_state
+strela_execute(strela_dev *dev) {
+	strela_job job = dev->backward_compat_job;
+
+	strela_job_submit(dev, job);
+	strela_job_wait(dev, job, 2000);
+	strela_job_state state = strela_job_poll(dev, job);
+	/* The driver should fail the job even before two seconds. */
+	assert(state != STRELA_JOB_PENDING);
+	return state;
 }
