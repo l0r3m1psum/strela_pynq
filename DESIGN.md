@@ -26,7 +26,7 @@ should be confirmed before it is relied on.
 | H6 | Buffers must be word-aligned; offsets and counts are in 4-byte words. | High |
 | H7 | A column with a zero count is inactive: nothing is written through its address. | **Verified on the board** for writes; reads cannot be observed. See below and D9 |
 | H8 | The input size register packs the stride in bytes in the upper 16 bits and the total bytes in the lower 16, so a column can move at most 64 KiB − 1 per job. | **Verified on the board** up to the largest encodable values; whether more could work is untested, because the driver refuses it. See D8 |
-| H9 | The I/O registers can be reprogrammed and exec restarted without reloading the config. | **Unverified** — would enable config caching and cheap batching |
+| H9 | The I/O registers can be reprogrammed and exec restarted without reloading the config. | **Verified on the board** — see below; enables config caching and cheap batching |
 | H10 | Memory is not coherent with the CPU: explicit cache maintenance is required in both directions. | High — the old driver synced on every operation |
 | H11 | An input column takes one word in every `stride`. A stride of 0 never advances: the first word is delivered `count` times. | **Verified on the board** — see below |
 | H12 | With a count of 0 the stride field is ignored: the column stays idle. | **Verified on the board** — see below |
@@ -70,9 +70,38 @@ a count of 0; the guard was untouched after every job.
 
 So an output that asks for more than its input sends hangs the job, while an
 input with nowhere to go or with words to spare is harmless. After the one
-cancelled job a baseline job ran correctly. H9 was not tested: every job
-through this driver reloads the configuration, so there is no way to try it
-from userspace.
+cancelled job a baseline job ran correctly.
+
+**H9 was measured on 2026-11-10** on the first CGRA, with the matvec kernel the
+Estela compiler emits. The driver always reloads the configuration, so the test
+(`benchmarks/matmul_i32/strela_h9.c` in strela_iree) goes around it:
+
+1. One job runs through the driver as usual, CONFIG then EXEC.
+2. Every workgroup of an int32 matmul then runs from userspace through
+   `/dev/mem`:
+   - rewrite the 8 I/O address/size registers;
+   - `CLEAR_STATE`, then `START_EXEC`;
+   - never `CLEAR_CONFIG` or `LOAD_CONFIG`.
+3. Each job's end is seen by polling its output words in memory.
+
+No driver job is active meanwhile, so the driver treats the exec interrupts as
+spurious.
+
+| Matmul | Jobs without a config load | Wrong words | `CNTR_CONF` before / after |
+|---|---|---|---|
+| 64×64×128, C=64 | 2 × 2752 | 0 / 8192 in each pass | 2348 / 2348 |
+| 128×128×126, C=128 | 2 × 5376 | 0 / 16128 in each pass | 2136 / 2136 |
+
+- The configuration survives exec phases, `CLEAR_STATE` and reprogramming of
+  every I/O register. The unchanged `CNTR_CONF` shows that nothing reloaded it.
+- The full matmul through the driver was correct again afterwards.
+- **Side finding:** `DONE_EXEC` and `DONE_CONFIG` stay set across
+  `CLEAR_STATE`: CTRL reads `0x3` before every start. The end of an exec can
+  only be seen through `PENDING_INT_EXEC`, i.e. the interrupt, or in memory, not
+  by polling the done bits.
+- **Not covered:** whether the configuration survives a cancelled or hung job.
+  The driver's stop path issues `CLEAR_CONFIG` anyway, so a cached
+  configuration must be forgotten there.
 
 Open hardware questions are collected in section 7.
 
@@ -496,8 +525,10 @@ Roughly in the order I would do them.
 5. **Submission is unbounded.** See D5: nothing limits how much a client can
    queue, so a submit loop can pin arbitrary memory. A byte budget rather than a
    job count would be the honest bound.
-6. **H9 against the RTL.** H7 and H8 are measured now; H9 (restarting exec
-   without reloading the config) cannot be tried through this driver.
+6. **Config caching.** H9 is verified (section 1): a job whose configuration is
+   already loaded can skip CONFIG. Keep the last loaded config (object, offset,
+   size) in `strela_device`, start such jobs straight in EXEC, and forget it in
+   `strela_hw_stop()`, on timeout, and on `STRELA_GEM_SYNC` of that object.
 7. **`queue_dealloca` and friends in the IREE HAL driver** are still
    `UNIMPLEMENTED`, and `dispatch`/`copy_buffer`/`queue_execute` there are no-ops.
 8. **Error reporting per job.** The hardware may be able to report how many words
@@ -509,8 +540,8 @@ Roughly in the order I would do them.
 
 ## 7. Open hardware questions
 
-1. Can the I/O registers be reprogrammed and exec restarted **without**
-   `LOAD_CONFIG`? (H9 — decides config caching and batching.)
+1. ~~Can the I/O registers be reprogrammed and exec restarted **without**
+   `LOAD_CONFIG`?~~ Yes, measured: H9.
 2. Does the hardware report per-output word counts, or an error/overflow bit?
 3. ~~Does `EXEC_DONE` fire only when every output has reached its count?~~
    Yes, measured: H13.
